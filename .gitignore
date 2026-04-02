@@ -1,0 +1,12 @@
+# Godot editor cache
+.godot/
+
+# GUT is a dependency, not part of GUTCheck
+addons/gut/
+
+# Generated coverage output
+coverage.lcov
+coverage_html/
+
+# Godot UID files
+*.uid
