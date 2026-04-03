@@ -26,11 +26,9 @@ jobs:
 
       - name: Install GUT
         run: |
-          mkdir -p addons/gut
-          curl -sL https://github.com/bitwes/Gut/releases/download/v9.6.0/GUT-9.6.0.zip -o gut.zip
-          unzip -q gut.zip -d gut_tmp
-          cp -r gut_tmp/addons/gut/* addons/gut/
-          rm -rf gut.zip gut_tmp
+          curl -sL https://github.com/bitwes/Gut/archive/refs/tags/v9.6.0.tar.gz | tar xz
+          cp -r Gut-9.6.0/addons/gut addons/gut
+          rm -rf Gut-9.6.0
 
       - name: Import project
         run: godot --headless --path . --editor --quit
