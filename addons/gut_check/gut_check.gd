@@ -66,15 +66,25 @@ func instrument_scripts() -> void:
 	# The instrumenter/tokenizer/classifier instances are alive during this phase.
 	var pending: Array = []  # Array of {path, source, script}
 	var source_files := _discover_source_files()
+	var inner_class_scripts: Array[String] = []
 	for path in source_files:
 		if _is_probe_runtime(path):
 			continue
 		if _has_inner_classes(path):
-			push_error("GUTCheck: '%s' contains inner classes. Godot reload() changes inner class type identity, which breaks typed references in other scripts. Refactor inner classes to separate files with class_name to enable coverage." % path)
-			_skipped_scripts.append(path)
+			inner_class_scripts.append(path)
 			continue
 		var entry: Dictionary = _prepare_file(path)
 		if not entry.is_empty():
+			pending.append(entry)
+
+	# Phase 1b: attempt inner-class scripts. These are risky because reload()
+	# creates new type identities for inner classes, which can break typed
+	# references in scripts outside source_dirs. We attempt instrumentation
+	# but roll back on compile failure.
+	for path in inner_class_scripts:
+		var entry: Dictionary = _prepare_file(path)
+		if not entry.is_empty():
+			entry["has_inner_classes"] = true
 			pending.append(entry)
 
 	# Free the instrumenter pipeline so no instances of GutCheck scripts
@@ -83,7 +93,15 @@ func instrument_scripts() -> void:
 	_registry = null
 
 	# Phase 2: reload all instrumented scripts now that no instances block it.
+	# Inner-class scripts are reloaded last so that if they break typed refs,
+	# the non-inner-class scripts are already successfully reloaded.
+	var inner_class_entries: Array = []
 	for entry in pending:
+		if entry.get("has_inner_classes", false):
+			inner_class_entries.append(entry)
+		else:
+			_reload_file(entry)
+	for entry in inner_class_entries:
 		_reload_file(entry)
 
 	GUTCheckCollector.enable()
@@ -273,6 +291,10 @@ func _scan_directory(dir_path: String, files: Array[String], exclude_patterns: A
 		push_warning("GUTCheck: Could not open directory: %s" % dir_path)
 		return
 
+	# Respect .gdignore — Godot's convention for ignoring directories
+	if dir.file_exists(".gdignore"):
+		return
+
 	dir.list_dir_begin()
 	var file_name := dir.get_next()
 
@@ -301,18 +323,28 @@ func _is_excluded(path: String, patterns: Array) -> bool:
 ## - Data classes (line_info, function_info, class_info, branch_info, script_map,
 ##   instrument_result): live instances exist in the pending instrumentation queue
 ##   and in the collector's script maps, blocking Godot's reload()
+##
+## Uses path-based detection: files must be under the gut_check addon directory.
+## Previous versions matched by filename alone, which could accidentally exclude
+## user scripts with the same name (e.g., a user's "script_map.gd").
+const _PROBE_RUNTIME_PATHS: Array[String] = [
+	"gut_check/collector/coverage_collector.gd",
+	"gut_check/gut_check.gd",
+	"gut_check/parser/line_info.gd",
+	"gut_check/parser/function_info.gd",
+	"gut_check/parser/class_info.gd",
+	"gut_check/parser/branch_info.gd",
+	"gut_check/parser/script_map.gd",
+	"gut_check/instrumenter/instrument_result.gd",
+]
+
 func _is_probe_runtime(path: String) -> bool:
-	var filename := path.get_file()
-	return filename in [
-		"coverage_collector.gd",
-		"gut_check.gd",
-		"line_info.gd",
-		"function_info.gd",
-		"class_info.gd",
-		"branch_info.gd",
-		"script_map.gd",
-		"instrument_result.gd",
-	]
+	if "addons/gut_check/" not in path:
+		return false
+	for suffix in _PROBE_RUNTIME_PATHS:
+		if path.ends_with(suffix):
+			return true
+	return false
 
 
 ## Check if a source file contains inner class definitions. Scripts with inner

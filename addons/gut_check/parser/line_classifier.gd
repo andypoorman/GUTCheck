@@ -374,6 +374,37 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		if _has_trailing_colon_after_type(tokens):
 			property_indent_stack.append(indent)
 
+	# Detect inline lambdas on non-function lines (e.g. `var fn = func(x):`).
+	# Named function declarations (kw == KW_FUNC) are already handled above,
+	# so we only scan for lambdas when the line's leading keyword is something
+	# else like var, return, etc.
+	if kw.type != GUTCheckToken.Type.KW_FUNC:
+		_detect_inline_lambdas(tokens, line_num, func_stack, class_stack, map)
+
+
+func _detect_inline_lambdas(tokens: Array, line_num: int, func_stack: Array,
+		class_stack: Array, map: GUTCheckScriptMap) -> void:
+	## Scan a token list for inline lambda definitions (func( without a name).
+	## Creates synthetic function entries with "<lambda>" names so they appear
+	## in LCOV function coverage output.
+	var lambda_count := 0
+	for i in range(tokens.size() - 1):
+		if tokens[i].type == GUTCheckToken.Type.KW_FUNC:
+			# Named function: func name( — skip, already handled
+			if tokens[i + 1].type == GUTCheckToken.Type.IDENTIFIER:
+				continue
+			# Lambda: func( or func() — no name before paren
+			if tokens[i + 1].type == GUTCheckToken.Type.PAREN_OPEN:
+				lambda_count += 1
+				var lambda_name := "<lambda:%d:%d>" % [line_num, lambda_count]
+				var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
+				var info := GUTCheckFunctionInfo.new(lambda_name, line_num, cls_name, false)
+				# Lambda scopes end on the same line for single-line lambdas.
+				# Multi-line lambdas will get their end_line updated by
+				# _close_scopes_at_indent when a DEDENT is encountered.
+				func_stack.append(info)
+				map.functions.append(info)
+
 
 func _close_scopes_at_indent(indent: int, func_stack: Array,
 		class_stack: Array, line_num: int) -> void:
