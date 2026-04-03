@@ -1,12 +1,16 @@
 extends GutTest
 
+var _snapshot: Dictionary
+
 
 func before_each():
+	_snapshot = GUTCheckCollector.snapshot()
+	GUTCheckCollector.unlock()
 	GUTCheckCollector.clear()
 
 
 func after_each():
-	GUTCheckCollector.clear()
+	GUTCheckCollector.restore_snapshot(_snapshot)
 
 
 func test_empty_coverage_produces_empty_lcov():
@@ -18,9 +22,9 @@ func test_empty_coverage_produces_empty_lcov():
 func test_basic_lcov_output():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://test.gd"
-	script_map.lines[1] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.lines[2] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.assign_probes()
 
@@ -48,16 +52,16 @@ func test_function_records():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://test.gd"
 
-	var func_info = GUTCheckScriptMap.FunctionInfo.new("my_func", 5)
+	var func_info = GUTCheckFunctionInfo.new("my_func", 5)
 	func_info.end_line = 10
 	script_map.functions.append(func_info)
 
 	# FUNC_DEF is not executable, so only line 6 and 7 get probes
-	script_map.lines[5] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[5] = GUTCheckLineInfo.new(
 		5, GUTCheckScriptMap.LineType.FUNC_DEF, "my_func")
-	script_map.lines[6] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[6] = GUTCheckLineInfo.new(
 		6, GUTCheckScriptMap.LineType.EXECUTABLE, "my_func")
-	script_map.lines[7] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[7] = GUTCheckLineInfo.new(
 		7, GUTCheckScriptMap.LineType.EXECUTABLE, "my_func")
 	script_map.assign_probes()
 
@@ -108,7 +112,7 @@ func test_branch_records_emitted_for_if():
 func test_no_branch_records_when_no_branches():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://test.gd"
-	script_map.lines[1] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.assign_probes()
 	script_map.assign_branch_probes()
@@ -129,11 +133,11 @@ func test_no_branch_records_when_no_branches():
 func test_coverage_collector_summary():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://test.gd"
-	script_map.lines[1] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.lines[2] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.lines[3] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[3] = GUTCheckLineInfo.new(
 		3, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.assign_probes()
 

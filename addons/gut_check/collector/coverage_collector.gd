@@ -19,6 +19,11 @@ static var _script_maps: Dictionary = {}
 ## Whether collection is active
 static var _enabled: bool = false
 
+## When locked, clear() preserves instrumentation registrations and keeps
+## collection enabled. Used for self-coverage so test cleanup doesn't
+## destroy production instrumentation state.
+static var _locked: bool = false
+
 
 ## Register a script for coverage tracking. Must be called before any hits
 ## are recorded for this script_id.
@@ -115,10 +120,49 @@ static func unregister_script(script_id: int) -> void:
 
 
 static func clear() -> void:
+	if _locked:
+		# When locked, clear() is a no-op. This preserves real
+		# instrumentation data for self-coverage while tests run.
+		return
 	_hits.clear()
 	_script_paths.clear()
 	_script_maps.clear()
 	_enabled = false
+
+
+
+
+## Lock the collector so clear() only resets hit counters instead of
+## removing registrations. Used for self-coverage.
+static func lock() -> void:
+	_locked = true
+
+
+static func unlock() -> void:
+	_locked = false
+
+
+## Snapshot the full collector state. Returns an opaque dictionary that
+## can be passed to restore_snapshot() to bring everything back.
+static func snapshot() -> Dictionary:
+	return {
+		"hits": _hits.duplicate(true),
+		"paths": _script_paths.duplicate(true),
+		"maps": _script_maps.duplicate(true),
+		"enabled": _enabled,
+		"locked": _locked,
+	}
+
+
+## Restore a previously taken snapshot.
+static func restore_snapshot(snap: Dictionary) -> void:
+	_hits = snap.hits.duplicate(true)
+	_script_paths = snap.paths.duplicate(true)
+	_script_maps = snap.maps.duplicate(true)
+	_enabled = snap.enabled
+	_locked = snap.locked
+
+
 
 
 static func get_hits() -> Dictionary:

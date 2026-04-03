@@ -10,6 +10,11 @@ func run():
 	gut_check.load_config()
 	gut_check.instrument_scripts()
 
+	# Lock the collector so test clear() calls only reset hit counters
+	# instead of removing instrumentation registrations. This allows
+	# self-coverage probes to keep firing during the test suite.
+	GUTCheckCollector.lock()
+
 	var instrumented := GUTCheckCollector.get_script_paths().size()
 	var skipped := gut_check.get_skipped_scripts()
 	if skipped.size() > 0:

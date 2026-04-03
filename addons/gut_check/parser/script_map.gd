@@ -20,80 +20,10 @@ enum LineType {
 }
 
 
-class LineInfo:
-	var line_number: int
-	var type: int  # LineType enum value
-	var function_name: String
-	var cls_name: String
-	## Number of semicolon-separated statements on this line.
-	## 1 means a normal single-statement line.
-	var statement_count: int = 1
-
-	func _init(p_line: int, p_type: int, p_func: String = "", p_class: String = ""):
-		line_number = p_line
-		type = p_type
-		function_name = p_func
-		cls_name = p_class
-
-	func is_executable() -> bool:
-		return type != GUTCheckScriptMap.LineType.NON_EXECUTABLE \
-			and type != GUTCheckScriptMap.LineType.CONTINUATION \
-			and type != GUTCheckScriptMap.LineType.FUNC_DEF \
-			and type != GUTCheckScriptMap.LineType.CLASS_DEF \
-			and type != GUTCheckScriptMap.LineType.BRANCH_ELSE \
-			and type != GUTCheckScriptMap.LineType.BRANCH_PATTERN \
-			and type != GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR
-
-
-class FunctionInfo:
-	var name: String
-	var start_line: int
-	var end_line: int
-	var cls_name: String
-	var is_static: bool
-
-	func _init(p_name: String, p_start: int, p_class: String = "", p_static: bool = false):
-		name = p_name
-		start_line = p_start
-		end_line = -1
-		cls_name = p_class
-		is_static = p_static
-
-
-class ClassInfo:
-	var name: String
-	var start_line: int
-	var end_line: int
-
-	func _init(p_name: String, p_start: int):
-		name = p_name
-		start_line = p_start
-		end_line = -1
-
-
-## A branch point for BRDA coverage. Each condition (if/elif/while) produces
-## two BranchInfo entries (true and false). Match patterns produce one each.
-class BranchInfo:
-	var line_number: int   # Source line of the branch
-	var block_id: int      # Same block_id = same if/elif/else chain or match
-	var branch_id: int     # Branch index within the block (0-based)
-	var probe_id: int      # Which probe in the hits array tracks this branch
-	## True for the false-path of a condition with no explicit else, or
-	## an unmatched case in a match without a wildcard pattern.
-	var is_true_branch: bool
-
-	func _init(p_line: int, p_block: int, p_branch: int, p_probe: int, p_is_true: bool = true):
-		line_number = p_line
-		block_id = p_block
-		branch_id = p_branch
-		probe_id = p_probe
-		is_true_branch = p_is_true
-
-
 ## Path of the source script (res:// path)
 var path: String
 
-## line_number -> LineInfo for every classified line
+## line_number -> GUTCheckLineInfo for every classified line
 var lines: Dictionary = {}
 
 ## All functions found in the script
@@ -103,7 +33,7 @@ var functions: Array = []
 var classes: Array = []
 
 ## Branch points for BRDA coverage
-var branches: Array = []  # Array of BranchInfo
+var branches: Array = []  # Array of GUTCheckBranchInfo
 
 ## Probe ID -> line number mapping (for resolving hits back to source lines)
 var probe_to_line: Dictionary = {}
@@ -121,7 +51,7 @@ func get_executable_lines_sorted() -> Array[int]:
 	return result
 
 
-## Get branch probes for a given line. Returns array of BranchInfo.
+## Get branch probes for a given line. Returns array of GUTCheckBranchInfo.
 func get_branches_for_line(line_num: int) -> Array:
 	var result: Array = []
 	for b in branches:
@@ -167,7 +97,7 @@ func assign_branch_probes() -> void:
 	var current_match_branch := 0
 
 	for line_num in sorted_keys:
-		var info: LineInfo = lines[line_num]
+		var info: GUTCheckLineInfo = lines[line_num]
 
 		match info.type:
 			LineType.BRANCH_IF:
@@ -177,12 +107,12 @@ func assign_branch_probes() -> void:
 				current_if_branch = 0
 				# True branch probe
 				var true_pid := probe_count
-				branches.append(BranchInfo.new(line_num, current_if_block, current_if_branch, true_pid, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, true_pid, true))
 				probe_count += 1
 				current_if_branch += 1
 				# False branch probe
 				var false_pid := probe_count
-				branches.append(BranchInfo.new(line_num, current_if_block, current_if_branch, false_pid, false))
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, false_pid, false))
 				probe_count += 1
 				current_if_branch += 1
 
@@ -194,77 +124,63 @@ func assign_branch_probes() -> void:
 					current_if_branch = 0
 				# True branch
 				var true_pid := probe_count
-				branches.append(BranchInfo.new(line_num, current_if_block, current_if_branch, true_pid, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, true_pid, true))
 				probe_count += 1
 				current_if_branch += 1
 				# False branch
 				var false_pid := probe_count
-				branches.append(BranchInfo.new(line_num, current_if_block, current_if_branch, false_pid, false))
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, false_pid, false))
 				probe_count += 1
 				current_if_branch += 1
 
 			LineType.BRANCH_ELSE:
-				# else has no condition — it's entered whenever the last
-				# elif/if false branch fires. We emit a single branch entry
-				# to track that the else body was reached.
 				if current_if_block == -1:
 					current_if_block = next_block_id
 					next_block_id += 1
 					current_if_branch = 0
 				var pid := probe_count
-				branches.append(BranchInfo.new(line_num, current_if_block, current_if_branch, pid, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, pid, true))
 				probe_count += 1
 				current_if_branch += 1
 
 			LineType.LOOP_WHILE:
-				# while gets its own block: 2 branches (entered / not entered)
 				var block := next_block_id
 				next_block_id += 1
 				var true_pid := probe_count
-				branches.append(BranchInfo.new(line_num, block, 0, true_pid, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 0, true_pid, true))
 				probe_count += 1
 				var false_pid := probe_count
-				branches.append(BranchInfo.new(line_num, block, 1, false_pid, false))
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 1, false_pid, false))
 				probe_count += 1
-				# Reset if-chain tracking
 				current_if_block = -1
 
 			LineType.LOOP_FOR:
-				# for gets its own block: 2 branches (iterable non-empty / empty)
 				var block := next_block_id
 				next_block_id += 1
 				var true_pid := probe_count
-				branches.append(BranchInfo.new(line_num, block, 0, true_pid, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 0, true_pid, true))
 				probe_count += 1
 				var false_pid := probe_count
-				branches.append(BranchInfo.new(line_num, block, 1, false_pid, false))
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 1, false_pid, false))
 				probe_count += 1
-				# Reset if-chain tracking
 				current_if_block = -1
 
 			LineType.BRANCH_MATCH:
-				# Start a new match block
 				current_match_block = next_block_id
 				next_block_id += 1
 				current_match_branch = 0
-				# The match expression itself gets a probe via br()
-				# (already allocated as a line probe). Pattern arms below
-				# get their own branch probes.
-				# Reset if-chain tracking
 				current_if_block = -1
 
 			LineType.BRANCH_PATTERN:
-				# Each match arm is a branch in the match block
 				if current_match_block == -1:
 					current_match_block = next_block_id
 					next_block_id += 1
 					current_match_branch = 0
 				var pid := probe_count
-				branches.append(BranchInfo.new(line_num, current_match_block, current_match_branch, pid, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, current_match_block, current_match_branch, pid, true))
 				probe_count += 1
 				current_match_branch += 1
 
 			_:
-				# Non-branch line — reset if-chain tracking if not continuation
 				if info.type != LineType.CONTINUATION and info.type != LineType.NON_EXECUTABLE:
 					current_if_block = -1

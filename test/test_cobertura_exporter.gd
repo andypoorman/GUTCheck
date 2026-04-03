@@ -1,12 +1,16 @@
 extends GutTest
 
+var _snapshot: Dictionary
+
 
 func before_each():
+	_snapshot = GUTCheckCollector.snapshot()
+	GUTCheckCollector.unlock()
 	GUTCheckCollector.clear()
 
 
 func after_each():
-	GUTCheckCollector.clear()
+	GUTCheckCollector.restore_snapshot(_snapshot)
 
 
 func test_empty_coverage_produces_valid_xml():
@@ -20,9 +24,9 @@ func test_empty_coverage_produces_valid_xml():
 func test_basic_cobertura_output():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://src/player.gd"
-	script_map.lines[1] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.lines[2] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.assign_probes()
 	script_map.assign_branch_probes()
@@ -47,13 +51,13 @@ func test_function_records_in_cobertura():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://test.gd"
 
-	var func_info = GUTCheckScriptMap.FunctionInfo.new("my_func", 5)
+	var func_info = GUTCheckFunctionInfo.new("my_func", 5)
 	func_info.end_line = 10
 	script_map.functions.append(func_info)
 
-	script_map.lines[5] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[5] = GUTCheckLineInfo.new(
 		5, GUTCheckScriptMap.LineType.FUNC_DEF, "my_func")
-	script_map.lines[6] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[6] = GUTCheckLineInfo.new(
 		6, GUTCheckScriptMap.LineType.EXECUTABLE, "my_func")
 	script_map.assign_probes()
 	script_map.assign_branch_probes()
@@ -93,7 +97,7 @@ func test_branch_coverage_in_cobertura():
 func test_xml_escaping():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = 'res://src/my&script.gd'
-	script_map.lines[1] = GUTCheckScriptMap.LineInfo.new(
+	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.assign_probes()
 	script_map.assign_branch_probes()

@@ -49,7 +49,7 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 							match_indent_stack, property_indent_stack, indent_level)
 						var func_name: String = func_stack.back().name if func_stack.size() > 0 else ""
 						var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-						map.lines[first_token_line] = GUTCheckScriptMap.LineInfo.new(
+						map.lines[first_token_line] = GUTCheckLineInfo.new(
 							first_token_line, line_type, func_name, cls_name)
 						_handle_scope_entry(current_line_tokens, first_token_line,
 							indent_level, pending_static, func_stack, class_stack,
@@ -58,7 +58,7 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 					if token.line != first_token_line and not map.lines.has(token.line):
 						var func_name: String = func_stack.back().name if func_stack.size() > 0 else ""
 						var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-						map.lines[token.line] = GUTCheckScriptMap.LineInfo.new(
+						map.lines[token.line] = GUTCheckLineInfo.new(
 							token.line, GUTCheckScriptMap.LineType.CONTINUATION, func_name, cls_name)
 				else:
 					var line_type = _classify_tokens(
@@ -66,7 +66,7 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 						match_indent_stack, property_indent_stack, indent_level)
 					var func_name: String = func_stack.back().name if func_stack.size() > 0 else ""
 					var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-					var info = GUTCheckScriptMap.LineInfo.new(
+					var info = GUTCheckLineInfo.new(
 						first_token_line, line_type, func_name, cls_name)
 					info.statement_count = _count_statements(current_line_tokens)
 					map.lines[first_token_line] = info
@@ -79,13 +79,13 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 					first_token_line = -1
 			else:
 				if not map.lines.has(token.line):
-					map.lines[token.line] = GUTCheckScriptMap.LineInfo.new(
+					map.lines[token.line] = GUTCheckLineInfo.new(
 						token.line, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 			continue
 
 		if token.type == GUTCheckToken.Type.COMMENT:
 			if current_line_tokens.size() == 0 and not map.lines.has(token.line):
-				map.lines[token.line] = GUTCheckScriptMap.LineInfo.new(
+				map.lines[token.line] = GUTCheckLineInfo.new(
 					token.line, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 			continue
 
@@ -353,7 +353,7 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		if kw_idx + 1 < tokens.size() and tokens[kw_idx + 1].type == GUTCheckToken.Type.IDENTIFIER:
 			fname = tokens[kw_idx + 1].value
 		var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-		var info = GUTCheckScriptMap.FunctionInfo.new(fname, line_num, cls_name, has_static)
+		var info = GUTCheckFunctionInfo.new(fname, line_num, cls_name, has_static)
 		func_stack.append(info)
 		map.functions.append(info)
 
@@ -361,7 +361,7 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		var cname := ""
 		if kw_idx + 1 < tokens.size() and tokens[kw_idx + 1].type == GUTCheckToken.Type.IDENTIFIER:
 			cname = tokens[kw_idx + 1].value
-		var info = GUTCheckScriptMap.ClassInfo.new(cname, line_num)
+		var info = GUTCheckClassInfo.new(cname, line_num)
 		class_stack.append(info)
 		map.classes.append(info)
 

@@ -52,6 +52,9 @@ func load_config(path: String = DEFAULT_CONFIG_PATH) -> Dictionary:
 
 
 ## Discover and instrument all source scripts based on config.
+## Uses a two-phase approach so that GutCheck's own scripts can be
+## instrumented: phase 1 tokenizes/classifies/instruments while instances
+## exist, phase 2 frees those instances then reloads the modified scripts.
 func instrument_scripts() -> void:
 	if _config.is_empty():
 		load_config()
@@ -59,13 +62,29 @@ func instrument_scripts() -> void:
 	GUTCheckCollector.clear()
 	_skipped_scripts.clear()
 
+	# Phase 1: tokenize, classify, instrument, register with collector.
+	# The instrumenter/tokenizer/classifier instances are alive during this phase.
+	var pending: Array = []  # Array of {path, source, script}
 	var source_files := _discover_source_files()
 	for path in source_files:
+		if _is_probe_runtime(path):
+			continue
 		if _has_inner_classes(path):
 			push_error("GUTCheck: '%s' contains inner classes. Godot reload() changes inner class type identity, which breaks typed references in other scripts. Refactor inner classes to separate files with class_name to enable coverage." % path)
 			_skipped_scripts.append(path)
 			continue
-		_instrument_file(path)
+		var entry: Dictionary = _prepare_file(path)
+		if not entry.is_empty():
+			pending.append(entry)
+
+	# Free the instrumenter pipeline so no instances of GutCheck scripts
+	# exist when we reload them. This is what allows self-instrumentation.
+	_instrumenter = null
+	_registry = null
+
+	# Phase 2: reload all instrumented scripts now that no instances block it.
+	for entry in pending:
+		_reload_file(entry)
 
 	GUTCheckCollector.enable()
 
@@ -429,6 +448,26 @@ func _is_excluded(path: String, patterns: Array) -> bool:
 	return false
 
 
+## Scripts that must be excluded from instrumentation:
+## - coverage_collector.gd: called by every probe, would cause infinite recursion
+## - gut_check.gd: the facade is executing instrument_scripts(), can't reload self
+## - Data classes (line_info, function_info, class_info, branch_info, script_map,
+##   instrument_result): live instances exist in the pending instrumentation queue
+##   and in the collector's script maps, blocking Godot's reload()
+func _is_probe_runtime(path: String) -> bool:
+	var filename := path.get_file()
+	return filename in [
+		"coverage_collector.gd",
+		"gut_check.gd",
+		"line_info.gd",
+		"function_info.gd",
+		"class_info.gd",
+		"branch_info.gd",
+		"script_map.gd",
+		"instrument_result.gd",
+	]
+
+
 ## Check if a source file contains inner class definitions. Scripts with inner
 ## classes cannot be safely reloaded at runtime because Godot creates new type
 ## identities for the inner classes, breaking typed references in other scripts.
@@ -446,48 +485,58 @@ func _has_inner_classes(path: String) -> bool:
 	return false
 
 
-func _instrument_file(path: String) -> void:
+## Phase 1: tokenize, classify, instrument a file. Returns a dict with
+## {path, source, script} on success, or empty dict on failure.
+func _prepare_file(path: String) -> Dictionary:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		push_warning("GUTCheck: Could not read file: %s" % path)
 		_skipped_scripts.append(path)
-		return
+		return {}
 
 	var source := file.get_as_text()
 	file.close()
 
 	var script_id := _registry.register(path)
 
-	# Tokenize, classify, and instrument. If any stage fails on pathological
-	# input, catch the error, log it, and skip this file.
-	var result: GUTCheckInstrumenter.InstrumentResult
+	var result: GUTCheckInstrumentResult
 	result = _instrumenter.instrument(source, script_id, path)
 	if result == null or result.probe_count == 0:
 		push_warning("GUTCheck: Instrumentation produced no probes for: %s (skipping)" % path)
 		_skipped_scripts.append(path)
-		return
+		return {}
 
-	# Register with collector
-	GUTCheckCollector.register_script(
-		script_id, path, result.probe_count, result.script_map)
-
-	# Modify the already-cached GDScript in-place and reload. Using load()
-	# gives us the same GDScript object that all compiled scripts reference,
-	# so probes fire when any code exercises the instrumented script.
+	# Get the cached GDScript object — don't reload yet.
 	var script = load(path) as GDScript
 	if script == null:
 		push_warning("GUTCheck: Could not load script for instrumentation: %s (skipping)" % path)
-		GUTCheckCollector.unregister_script(script_id)
 		_skipped_scripts.append(path)
-		return
+		return {}
 
+	return {
+		"path": path,
+		"source": result.source,
+		"script": script,
+		"script_id": script_id,
+		"probe_count": result.probe_count,
+		"script_map": result.script_map,
+	}
+
+
+## Phase 2: reload a previously instrumented script and register with collector.
+func _reload_file(entry: Dictionary) -> void:
+	var path: String = entry.path
+	var script: GDScript = entry.script
 	var original_source: String = script.source_code
-	script.source_code = result.source
+	script.source_code = entry.source
 	var reload_result: int = script.reload()
 	if reload_result != OK:
 		push_warning("GUTCheck: Failed to compile instrumented script: %s (error %d, skipping)" % [path, reload_result])
-		# Roll back: restore original source and unregister from collector
 		script.source_code = original_source
 		script.reload()
-		GUTCheckCollector.unregister_script(script_id)
 		_skipped_scripts.append(path)
+		return
+
+	# Register with collector only after successful reload
+	GUTCheckCollector.register_script(
+		entry.script_id, path, entry.probe_count, entry.script_map)

@@ -12,16 +12,9 @@ var _tokenizer = GUTCheckTokenizer.new()
 var _classifier = GUTCheckLineClassifier.new()
 
 
-## Result of instrumenting a script
-class InstrumentResult:
-	var source: String
-	var script_map: GUTCheckScriptMap
-	var probe_count: int
-
-
-## Instrument a GDScript source string. Returns an InstrumentResult with the
-## modified source and metadata.
-func instrument(source: String, script_id: int, script_path: String = "") -> InstrumentResult:
+## Instrument a GDScript source string. Returns a GUTCheckInstrumentResult
+## with the modified source and metadata.
+func instrument(source: String, script_id: int, script_path: String = "") -> GUTCheckInstrumentResult:
 	var tokens = _tokenizer.tokenize(source)
 	var script_map = _classifier.classify(tokens, script_path)
 
@@ -81,7 +74,7 @@ func instrument(source: String, script_id: int, script_path: String = "") -> Ins
 		result_lines[i] = _instrument_line(
 			line, line_info.type, script_id, first_probe, line_info.statement_count, branch_probes)
 
-	var result := InstrumentResult.new()
+	var result := GUTCheckInstrumentResult.new()
 	result.source = "\n".join(result_lines)
 	result.script_map = script_map
 	result.probe_count = script_map.probe_count

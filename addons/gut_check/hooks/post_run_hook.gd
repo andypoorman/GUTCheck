@@ -9,9 +9,7 @@ func run():
 	var gut_check := GUTCheck.new()
 	gut_check.load_config()
 
-	# Disable collection, then print summary before exporting — print_summary
-	# reads the previous LCOV file for delta comparison, so it must run
-	# before we overwrite it.
+	GUTCheckCollector.unlock()
 	GUTCheckCollector.disable()
 	gut_check.print_summary(gut.logger)
 

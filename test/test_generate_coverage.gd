@@ -2,7 +2,11 @@ extends GutTest
 ## Generates a real coverage.lcov file for viewing with genhtml.
 
 
+var _snapshot: Dictionary
+
 func test_generate_coverage_report():
+	_snapshot = GUTCheckCollector.snapshot()
+	GUTCheckCollector.unlock()
 	GUTCheckCollector.clear()
 
 	var instrumenter = GUTCheckInstrumenter.new()
@@ -56,4 +60,4 @@ func test_generate_coverage_report():
 		summary.percentage, summary.hit_lines, summary.total_lines])
 	gut.p("LCOV written to: %s" % lcov_path)
 
-	GUTCheckCollector.clear()
+	GUTCheckCollector.restore_snapshot(_snapshot)
