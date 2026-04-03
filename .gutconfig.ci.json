@@ -1,0 +1,7 @@
+{
+  "dirs": ["res://test/"],
+  "should_exit": true,
+  "log_level": 2,
+  "pre_run_script": "res://addons/gut_check/hooks/pre_run_hook.gd",
+  "post_run_script": "res://addons/gut_check/hooks/post_run_hook.gd"
+}

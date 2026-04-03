@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: "4.6.2"
+          use-dotnet: false
+
+      - name: Import project
+        run: godot --headless --path . --editor --quit
+
+      - name: Run GUT tests with coverage
+        run: |
+          godot --headless --path . \
+            -s addons/gut/gut_cmdln.gd \
+            -gconfig=.gutconfig.ci.json 2>&1 | tee test_output.txt
+          passing=$(grep -oP 'Passing Tests\s+\K\d+' test_output.txt || echo 0)
+          failing=$(grep -oP 'Failing Tests\s+\K\d+' test_output.txt || echo 999)
+          echo "Passing: $passing, Failing: $failing"
+          if [ "$failing" -gt 0 ]; then
+            echo "::error::$failing test(s) failed"
+            exit 1
+          fi
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.lcov
+          fail_ci_if_error: false
