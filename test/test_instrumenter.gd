@@ -51,7 +51,7 @@ func test_line_count_preserved():
 func test_if_condition_wrapped():
 	var source = "func foo():\n\tif x > 5:"
 	var result = _instrumenter.instrument(source, 0)
-	assert_string_contains(result.source, "GUTCheckCollector.br2(")
+	assert_string_contains(result.source, "GUTCheckCollector.hit_br2(")
 	assert_string_contains(result.source, "x > 5")
 	assert_string_contains(result.source, "if GUTCheckCollector")
 
@@ -59,20 +59,20 @@ func test_if_condition_wrapped():
 func test_elif_condition_wrapped():
 	var source = "func foo():\n\tif true:\n\t\tpass\n\telif x < 3:"
 	var result = _instrumenter.instrument(source, 0)
-	assert_string_contains(result.source, "elif GUTCheckCollector.br2(")
+	assert_string_contains(result.source, "elif GUTCheckCollector.hit_br2(")
 
 
 func test_while_condition_wrapped():
 	var source = "func foo():\n\twhile running:"
 	var result = _instrumenter.instrument(source, 0)
-	assert_string_contains(result.source, "while GUTCheckCollector.br2(")
+	assert_string_contains(result.source, "while GUTCheckCollector.hit_br2(")
 	assert_string_contains(result.source, "running")
 
 
 func test_for_iterable_wrapped():
 	var source = "func foo():\n\tfor i in range(10):"
 	var result = _instrumenter.instrument(source, 0)
-	assert_string_contains(result.source, "GUTCheckCollector.br2rng(")
+	assert_string_contains(result.source, "GUTCheckCollector.hit_br2rng(")
 	assert_string_contains(result.source, "range(10)")
 
 
@@ -140,8 +140,8 @@ func test_sample_script_instrumentation():
 
 	assert_gt(result.probe_count, 0, "Should have coverage probes")
 	assert_string_contains(result.source, "GUTCheckCollector.hit(")
-	assert_string_contains(result.source, "GUTCheckCollector.br2(")
-	assert_string_contains(result.source, "GUTCheckCollector.br2rng(")
+	assert_string_contains(result.source, "GUTCheckCollector.hit_br2(")
+	assert_string_contains(result.source, "GUTCheckCollector.hit_br2rng(")
 
 
 # ---------------------------------------------------------------------------

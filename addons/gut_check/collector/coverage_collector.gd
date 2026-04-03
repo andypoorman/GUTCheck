@@ -62,11 +62,50 @@ static func br2(script_id: int, true_pid: int, false_pid: int, value: Variant) -
 	return value
 
 
+## Record a line hit AND a branch hit. Fires the line probe (pid) plus
+## the appropriate branch probe (true_pid or false_pid) in one call.
+##   if GUTCheckCollector.hit_br2(sid, pid, true_pid, false_pid, condition):
+static func hit_br2(script_id: int, line_pid: int, true_pid: int, false_pid: int, value: Variant) -> Variant:
+	if _enabled:
+		_hits[script_id][line_pid] += 1
+		if value:
+			_hits[script_id][true_pid] += 1
+		else:
+			_hits[script_id][false_pid] += 1
+	return value
+
+
 ## Record a hit and return the value unchanged. Used to wrap iterables:
 ##   for i in GUTCheckCollector.rng(sid, pid, range(10)):
 static func rng(script_id: int, probe_id: int, value: Variant) -> Variant:
 	if _enabled:
 		_hits[script_id][probe_id] += 1
+	return value
+
+
+## Record a line hit AND a branch hit for a for-loop iterable.
+## Fires line probe plus true_pid (non-empty) or false_pid (empty).
+##   for i in GUTCheckCollector.hit_br2rng(sid, pid, true_pid, false_pid, range(10)):
+static func hit_br2rng(script_id: int, line_pid: int, true_pid: int, false_pid: int, value: Variant) -> Variant:
+	if _enabled:
+		_hits[script_id][line_pid] += 1
+		var non_empty := false
+		if value is Array or value is PackedByteArray or value is PackedInt32Array \
+				or value is PackedInt64Array or value is PackedFloat32Array \
+				or value is PackedFloat64Array or value is PackedStringArray \
+				or value is PackedVector2Array or value is PackedVector3Array \
+				or value is PackedColorArray or value is PackedVector4Array:
+			non_empty = value.size() > 0
+		elif value is Dictionary:
+			non_empty = value.size() > 0
+		elif value is String:
+			non_empty = value.length() > 0
+		else:
+			non_empty = true
+		if non_empty:
+			_hits[script_id][true_pid] += 1
+		else:
+			_hits[script_id][false_pid] += 1
 	return value
 
 

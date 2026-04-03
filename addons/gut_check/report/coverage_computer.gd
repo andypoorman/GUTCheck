@@ -7,13 +7,14 @@ class_name GUTCheckCoverageComputer
 static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dictionary:
 	# Line coverage
 	var line_probes: Dictionary = _build_line_probes(script_map)
+	var branch_line_hits: Dictionary = _build_branch_line_hits(script_map, hits)
 	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
 	var lines_found := exec_lines.size()
 	var lines_hit := 0
 	var uncovered_lines: Array[int] = []
 
 	for ln in exec_lines:
-		var hit_count := _get_line_hit_count(ln, line_probes, hits)
+		var hit_count := _get_line_hit_count(ln, line_probes, hits, branch_line_hits)
 		if hit_count > 0:
 			lines_hit += 1
 		else:
@@ -46,10 +47,9 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	for func_info in script_map.functions:
 		for ln in exec_lines:
 			if ln >= func_info.start_line and (func_info.end_line == -1 or ln <= func_info.end_line):
-				if line_probes.has(ln):
-					var pid: int = line_probes[ln][0]
-					if pid < hits.size() and hits[pid] > 0:
-						funcs_hit += 1
+				var fhc := _get_line_hit_count(ln, line_probes, hits, branch_line_hits)
+				if fhc > 0:
+					funcs_hit += 1
 				break
 
 	return {
@@ -188,15 +188,33 @@ static func _build_line_probes(script_map) -> Dictionary:
 	return line_probes
 
 
-static func _get_line_hit_count(line_num: int, line_probes: Dictionary, hits: PackedInt32Array) -> int:
-	if not line_probes.has(line_num):
-		return 0
-	var probes: Array = line_probes[line_num]
-	var hit_count: int = hits[probes[0]] if probes[0] < hits.size() else 0
-	for j in range(1, probes.size()):
-		if probes[j] < hits.size():
-			hit_count = mini(hit_count, hits[probes[j]])
+static func _get_line_hit_count(line_num: int, line_probes: Dictionary, hits: PackedInt32Array, branch_line_hits: Dictionary = {}) -> int:
+	var hit_count := 0
+	if line_probes.has(line_num):
+		var probes: Array = line_probes[line_num]
+		hit_count = hits[probes[0]] if probes[0] < hits.size() else 0
+		for j in range(1, probes.size()):
+			if probes[j] < hits.size():
+				hit_count = mini(hit_count, hits[probes[j]])
+	# Branch lines (if/elif/while/for) only fire branch probes, not line
+	# probes.  Fall back to the sum of branch probe hits for such lines.
+	if hit_count == 0 and branch_line_hits.has(line_num):
+		hit_count = branch_line_hits[line_num]
 	return hit_count
+
+
+## Build a mapping of line_number -> total branch hits for that line.
+## Used so branch lines (if/elif/while/for) count as covered even though
+## the injector fires br2() instead of hit().
+static func _build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
+	var result: Dictionary = {}
+	for b in script_map.branches:
+		var h := 0
+		if b.probe_id < hits.size():
+			h = hits[b.probe_id]
+		if h > 0:
+			result[b.line_number] = result.get(b.line_number, 0) + h
+	return result
 
 
 static func _pct(hit: int, total: int, default_val: float = 0.0) -> float:
