@@ -263,6 +263,7 @@ addons/gut_check/
     coverage_collector.gd  # Static hit counter (PackedInt32Array, ~3 ops per probe)
   export/
     lcov_exporter.gd       # Generates LCOV tracefiles with FN/FNDA/BRDA/DA records
+    lcov_merger.gd         # Merges multiple LCOV tracefiles (e.g., parallel test runs)
     cobertura_exporter.gd  # Generates Cobertura XML with line and branch coverage
   hooks/
     pre_run_hook.gd     # GUT pre-run hook (instruments scripts)
@@ -276,12 +277,11 @@ Early release
 
 ### Known Limitations
 
-- **Inner classes** - Scripts containing inner class definitions (`class Foo` inside another script) are skipped. Godot's `reload()` creates new type identities for inner classes, which breaks typed references in other scripts. GUTCheck detects these and logs a warning. Workaround: refactor inner classes to separate files with their own `class_name`.
+- **Inner classes** - Scripts containing inner class definitions (`class Foo` inside another script) are instrumented, but `reload()` creates new type identities for inner classes, which can break typed references in other scripts. GUTCheck attempts instrumentation and rolls back on compile failure. If you see type errors after instrumentation, refactor inner classes to separate files with their own `class_name`.
 - **`@tool` scripts** - Scripts marked with `@tool` run in the editor. Instrumenting them can cause unexpected behavior since the modified source executes during editor operations, not just during test runs. Exclude them via `exclude_patterns`.
 - **Autoloads** - Autoload singletons are instantiated before the pre-run hook fires. Their `_ready()` and any initialization code runs before instrumentation happens, so that code won't be covered. Methods called later during tests will be covered if the autoload script is in `source_dirs`.
 - **`preload()` references** - If script A does `const B = preload("res://b.gd")`, Godot resolves that reference at parse time. The `load()` + `reload()` approach updates the cached script object in place, so preloaded references should pick up the instrumented version. However, if Godot has already compiled and cached the bytecode for A before the hook runs, the reference may point to the original. This has worked in testing but may have edge cases in large projects.
 - **Static variables** - GDScript static variables persist across test runs. GUTCheck's own collector uses static state and clears it between runs, but if your instrumented scripts have static variables, their state carries over as it normally would.
-- **Lambda coverage** - Inline lambdas (`var f = func(): return 42`) are treated as a single executable line. The lambda body isn't separately tracked.
 - **Compilation failures** - Scripts that fail to compile after instrumentation are automatically rolled back and skipped. The original source is restored and a warning is logged.
 - **Performance** - Each instrumented line adds one static function call. Each branch point adds one call that checks truthiness. Should be negligible for test runs but hasn't been benchmarked beyond ~50 scripts w/ ~900 tests.
 
