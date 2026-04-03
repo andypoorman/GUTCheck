@@ -1072,3 +1072,527 @@ func test_line_info_is_executable():
 
 	var match_br = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.BRANCH_MATCH)
 	assert_true(match_br.is_executable())
+
+
+# ===========================================================================
+# PROBE INJECTOR — static utility tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# get_indent
+# ---------------------------------------------------------------------------
+
+func test_probe_injector_get_indent_tabs():
+	assert_eq(GUTCheckProbeInjector.get_indent("\t\tvar x = 1"), "\t\t")
+
+func test_probe_injector_get_indent_spaces():
+	assert_eq(GUTCheckProbeInjector.get_indent("    var x = 1"), "    ")
+
+func test_probe_injector_get_indent_mixed():
+	assert_eq(GUTCheckProbeInjector.get_indent("\t  code"), "\t  ")
+
+func test_probe_injector_get_indent_empty():
+	assert_eq(GUTCheckProbeInjector.get_indent(""), "")
+
+func test_probe_injector_get_indent_no_indent():
+	assert_eq(GUTCheckProbeInjector.get_indent("var x"), "")
+
+
+# ---------------------------------------------------------------------------
+# find_block_colon
+# ---------------------------------------------------------------------------
+
+func test_find_block_colon_simple():
+	var pos = GUTCheckProbeInjector.find_block_colon("if x > 0:")
+	assert_eq(pos, 8)
+
+func test_find_block_colon_in_string():
+	# The colon inside the string should be ignored; only the trailing one counts
+	var pos = GUTCheckProbeInjector.find_block_colon('if s == "a:b":')
+	assert_eq(pos, 13)
+
+func test_find_block_colon_nested_parens():
+	var pos = GUTCheckProbeInjector.find_block_colon("if foo(a, b):")
+	assert_eq(pos, 12)
+
+func test_find_block_colon_no_colon():
+	var pos = GUTCheckProbeInjector.find_block_colon("var x = 1")
+	assert_eq(pos, -1)
+
+func test_find_block_colon_nested_brackets():
+	var pos = GUTCheckProbeInjector.find_block_colon("if d[k]:")
+	assert_eq(pos, 7)
+
+
+# ---------------------------------------------------------------------------
+# find_for_in
+# ---------------------------------------------------------------------------
+
+func test_find_for_in_simple():
+	var pos = GUTCheckProbeInjector.find_for_in("for i in range(5):")
+	assert_gt(pos, 0)
+	assert_eq("for i in range(5):".substr(pos, 4), " in ")
+
+func test_find_for_in_complex_var():
+	var pos = GUTCheckProbeInjector.find_for_in("for item in items:")
+	assert_gt(pos, 0)
+
+func test_find_for_in_no_in():
+	var pos = GUTCheckProbeInjector.find_for_in("for_something:")
+	assert_eq(pos, -1)
+
+func test_find_for_in_string_containing_in():
+	# " in " inside a string should be skipped
+	var pos = GUTCheckProbeInjector.find_for_in('for x in ["in value"]:')
+	assert_gt(pos, 0)
+	# The first real " in " is before the brackets
+	assert_true(pos < 10, "Should find the real 'in', not the one in the string")
+
+
+# ---------------------------------------------------------------------------
+# instrument_semicolon_statements
+# ---------------------------------------------------------------------------
+
+func test_instrument_semicolon_two_stmts():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("a = 1; b = 2", 0, 10)
+	assert_string_contains(result, "GUTCheckCollector.hit(0,10)")
+	assert_string_contains(result, "GUTCheckCollector.hit(0,11)")
+	assert_string_contains(result, "a = 1")
+	assert_string_contains(result, "b = 2")
+
+func test_instrument_semicolon_single_stmt():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("x = 1", 0, 5)
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+	assert_string_contains(result, "x = 1")
+
+func test_instrument_semicolon_string_with_semicolon():
+	# Semicolons inside strings should not split
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a;b"', 0, 0)
+	# Should be treated as a single statement
+	assert_eq(result.count("GUTCheckCollector.hit("), 1)
+
+
+# ---------------------------------------------------------------------------
+# wrap_condition
+# ---------------------------------------------------------------------------
+
+func test_wrap_condition_if():
+	var result = GUTCheckProbeInjector.wrap_condition("if x > 0:", "if", 1, 5)
+	assert_string_contains(result, "GUTCheckCollector.br(1,5,")
+	assert_string_contains(result, "x > 0")
+
+func test_wrap_condition_while():
+	var result = GUTCheckProbeInjector.wrap_condition("while running:", "while", 2, 7)
+	assert_string_contains(result, "GUTCheckCollector.br(2,7,")
+	assert_string_contains(result, "running")
+
+func test_wrap_condition_no_colon():
+	var result = GUTCheckProbeInjector.wrap_condition("if something", "if", 0, 0)
+	assert_eq(result, "if something", "Should return unchanged when no block colon")
+
+
+# ---------------------------------------------------------------------------
+# wrap_condition_br2 — with and without branch probes
+# ---------------------------------------------------------------------------
+
+func _make_branch_probes(true_pid: int, false_pid: int) -> Array:
+	return [
+		GUTCheckBranchInfo.new(1, 0, 0, true_pid, true),
+		GUTCheckBranchInfo.new(1, 0, 1, false_pid, false),
+	]
+
+func test_wrap_condition_br2_with_branch_probes():
+	var bps = _make_branch_probes(10, 11)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2(1,10,11,")
+	assert_string_contains(result, "x > 0")
+
+func test_wrap_condition_br2_without_branch_probes():
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, 5, [])
+	assert_string_contains(result, "GUTCheckCollector.br(1,5,")
+
+func test_wrap_condition_br2_elif():
+	var bps = _make_branch_probes(20, 21)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("elif y < 3:", "elif", 2, 8, bps)
+	assert_string_contains(result, "elif GUTCheckCollector.br2(2,20,21,")
+
+func test_wrap_condition_br2_while():
+	var bps = _make_branch_probes(30, 31)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("while active:", "while", 3, 9, bps)
+	assert_string_contains(result, "while GUTCheckCollector.br2(3,30,31,")
+
+func test_wrap_condition_br2_no_colon():
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if something", "if", 0, 0, [])
+	assert_eq(result, "if something")
+
+
+# ---------------------------------------------------------------------------
+# wrap_for_br2 and wrap_for — with and without branch probes
+# ---------------------------------------------------------------------------
+
+func test_wrap_for_br2_with_branch_probes():
+	var bps = _make_branch_probes(40, 41)
+	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2rng(1,40,41,")
+	assert_string_contains(result, "range(5)")
+
+func test_wrap_for_br2_without_branch_probes():
+	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, 5, [])
+	assert_string_contains(result, "GUTCheckCollector.rng(1,5,")
+
+func test_wrap_for_br2_no_in():
+	var result = GUTCheckProbeInjector.wrap_for_br2("for_thing:", 1, 5, [])
+	assert_eq(result, "for_thing:")
+
+func test_wrap_for_simple():
+	var result = GUTCheckProbeInjector.wrap_for("for i in range(3):", 2, 10)
+	assert_string_contains(result, "GUTCheckCollector.rng(2,10,")
+	assert_string_contains(result, "range(3)")
+
+func test_wrap_for_no_in():
+	var result = GUTCheckProbeInjector.wrap_for("for_something:", 0, 0)
+	assert_eq(result, "for_something:")
+
+func test_wrap_for_no_colon():
+	var result = GUTCheckProbeInjector.wrap_for("for i in items", 0, 0)
+	assert_eq(result, "for i in items")
+
+
+# ---------------------------------------------------------------------------
+# wrap_match
+# ---------------------------------------------------------------------------
+
+func test_wrap_match_simple():
+	var result = GUTCheckProbeInjector.wrap_match("match state:", 3, 15)
+	assert_string_contains(result, "match GUTCheckCollector.br(3,15,state):")
+
+func test_wrap_match_complex_expr():
+	var result = GUTCheckProbeInjector.wrap_match("match foo.bar():", 1, 2)
+	assert_string_contains(result, "match GUTCheckCollector.br(1,2,foo.bar()):")
+
+func test_wrap_match_no_colon():
+	var result = GUTCheckProbeInjector.wrap_match("match something", 0, 0)
+	assert_eq(result, "match something")
+
+
+# ---------------------------------------------------------------------------
+# inject_match_pattern_probe — currently a no-op
+# ---------------------------------------------------------------------------
+
+func test_inject_match_pattern_probe_returns_content():
+	var result = GUTCheckProbeInjector.inject_match_pattern_probe("0:", 1, 5)
+	assert_eq(result, "0:", "inject_match_pattern_probe should return content unchanged")
+
+
+# ---------------------------------------------------------------------------
+# instrument_line — dispatch by LineType
+# ---------------------------------------------------------------------------
+
+func test_instrument_line_executable():
+	var result = GUTCheckProbeInjector.instrument_line("\tvar x = 1", GUTCheckScriptMap.LineType.EXECUTABLE, 0, 5)
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+	assert_true(result.begins_with("\t"), "Should preserve indent")
+
+func test_instrument_line_executable_multi_stmt():
+	var result = GUTCheckProbeInjector.instrument_line("\ta = 1; b = 2", GUTCheckScriptMap.LineType.EXECUTABLE, 0, 5, 2)
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+	assert_string_contains(result, "GUTCheckCollector.hit(0,6)")
+
+func test_instrument_line_branch_else():
+	var result = GUTCheckProbeInjector.instrument_line("\telse:", GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, 0)
+	assert_eq(result, "\telse:", "BRANCH_ELSE should be returned unchanged")
+
+func test_instrument_line_property_accessor():
+	var result = GUTCheckProbeInjector.instrument_line("\tget:", GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR, 0, 0)
+	assert_eq(result, "\tget:", "PROPERTY_ACCESSOR should be returned unchanged")
+
+func test_instrument_line_branch_if():
+	var bps = _make_branch_probes(10, 11)
+	var result = GUTCheckProbeInjector.instrument_line("\tif x > 0:", GUTCheckScriptMap.LineType.BRANCH_IF, 1, 5, 1, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2(")
+
+func test_instrument_line_branch_elif():
+	var bps = _make_branch_probes(20, 21)
+	var result = GUTCheckProbeInjector.instrument_line("\telif y:", GUTCheckScriptMap.LineType.BRANCH_ELIF, 1, 5, 1, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2(")
+
+func test_instrument_line_loop_while():
+	var bps = _make_branch_probes(30, 31)
+	var result = GUTCheckProbeInjector.instrument_line("\twhile active:", GUTCheckScriptMap.LineType.LOOP_WHILE, 1, 5, 1, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2(")
+
+func test_instrument_line_loop_for():
+	var bps = _make_branch_probes(40, 41)
+	var result = GUTCheckProbeInjector.instrument_line("\tfor i in items:", GUTCheckScriptMap.LineType.LOOP_FOR, 1, 5, 1, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2rng(")
+
+func test_instrument_line_branch_match():
+	var result = GUTCheckProbeInjector.instrument_line("\tmatch val:", GUTCheckScriptMap.LineType.BRANCH_MATCH, 1, 5)
+	assert_string_contains(result, "match GUTCheckCollector.br(")
+
+func test_instrument_line_branch_pattern_with_probe():
+	var bp = GUTCheckBranchInfo.new(1, 0, 0, 99, true)
+	var result = GUTCheckProbeInjector.instrument_line("\t0:", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, 5, 1, [bp])
+	# inject_match_pattern_probe is a no-op, so content is returned unchanged
+	assert_eq(result.strip_edges(), "0:")
+
+func test_instrument_line_branch_pattern_no_probe():
+	var result = GUTCheckProbeInjector.instrument_line("\t0:", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, 5, 1, [])
+	assert_eq(result, "\t0:", "BRANCH_PATTERN without probes should be unchanged")
+
+func test_instrument_line_func_def():
+	var result = GUTCheckProbeInjector.instrument_line("func foo():", GUTCheckScriptMap.LineType.FUNC_DEF, 0, 0)
+	assert_eq(result, "func foo():", "FUNC_DEF should be returned unchanged")
+
+func test_instrument_line_class_def():
+	var result = GUTCheckProbeInjector.instrument_line("class Inner:", GUTCheckScriptMap.LineType.CLASS_DEF, 0, 0)
+	assert_eq(result, "class Inner:", "CLASS_DEF should be returned unchanged")
+
+func test_instrument_line_non_executable():
+	var result = GUTCheckProbeInjector.instrument_line("# comment", GUTCheckScriptMap.LineType.NON_EXECUTABLE, 0, 0)
+	assert_eq(result, "# comment", "NON_EXECUTABLE should be returned unchanged")
+
+func test_instrument_line_continuation():
+	var result = GUTCheckProbeInjector.instrument_line("\t\"key\": val,", GUTCheckScriptMap.LineType.CONTINUATION, 0, 0)
+	assert_eq(result, "\t\"key\": val,", "CONTINUATION should be returned unchanged")
+
+
+# ===========================================================================
+# COVERAGE COMPUTER — static utility tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# format_line_ranges
+# ---------------------------------------------------------------------------
+
+func test_format_line_ranges_consecutive():
+	var lines: Array[int] = [1, 2, 3, 4, 5]
+	assert_eq(GUTCheckCoverageComputer.format_line_ranges(lines), "1-5")
+
+func test_format_line_ranges_gaps():
+	var lines: Array[int] = [1, 2, 5, 6, 7, 10]
+	assert_eq(GUTCheckCoverageComputer.format_line_ranges(lines), "1-2,5-7,10")
+
+func test_format_line_ranges_single_lines():
+	var lines: Array[int] = [3, 7, 12]
+	assert_eq(GUTCheckCoverageComputer.format_line_ranges(lines), "3,7,12")
+
+func test_format_line_ranges_empty():
+	var lines: Array[int] = []
+	assert_eq(GUTCheckCoverageComputer.format_line_ranges(lines), "")
+
+func test_format_line_ranges_single_element():
+	var lines: Array[int] = [42]
+	assert_eq(GUTCheckCoverageComputer.format_line_ranges(lines), "42")
+
+func test_format_line_ranges_mixed():
+	var lines: Array[int] = [1, 3, 4, 5, 9]
+	assert_eq(GUTCheckCoverageComputer.format_line_ranges(lines), "1,3-5,9")
+
+
+# ---------------------------------------------------------------------------
+# has_inner_classes_in_source
+# ---------------------------------------------------------------------------
+
+func test_has_inner_classes_positive():
+	var source = "extends Node\n\nclass Inner:\n\tvar x = 1\n"
+	assert_true(GUTCheckCoverageComputer.has_inner_classes_in_source(source))
+
+func test_has_inner_classes_negative():
+	var source = "extends Node\nvar x = 1\nfunc foo():\n\tpass\n"
+	assert_false(GUTCheckCoverageComputer.has_inner_classes_in_source(source))
+
+func test_has_inner_classes_class_name_not_counted():
+	var source = "class_name MyScript\nvar x = 1\n"
+	assert_false(GUTCheckCoverageComputer.has_inner_classes_in_source(source))
+
+func test_has_inner_classes_indented():
+	var source = "func foo():\n\tclass Local:\n\t\tpass\n"
+	assert_true(GUTCheckCoverageComputer.has_inner_classes_in_source(source))
+
+
+# ---------------------------------------------------------------------------
+# is_excluded
+# ---------------------------------------------------------------------------
+
+func test_is_excluded_match():
+	assert_true(GUTCheckCoverageComputer.is_excluded("res://addons/gut/test.gd", ["res://addons/*"]))
+
+func test_is_excluded_no_match():
+	assert_false(GUTCheckCoverageComputer.is_excluded("res://src/game.gd", ["res://addons/*"]))
+
+func test_is_excluded_multiple_patterns():
+	assert_true(GUTCheckCoverageComputer.is_excluded("res://test/foo.gd", ["res://addons/*", "res://test/*"]))
+
+func test_is_excluded_empty_patterns():
+	assert_false(GUTCheckCoverageComputer.is_excluded("res://anything.gd", []))
+
+func test_is_excluded_exact_match():
+	assert_true(GUTCheckCoverageComputer.is_excluded("res://specific.gd", ["res://specific.gd"]))
+
+
+# ---------------------------------------------------------------------------
+# parse_lcov_content
+# ---------------------------------------------------------------------------
+
+func test_parse_lcov_simple():
+	var lcov = "SF:/project/src/a.gd\nLF:10\nLH:8\nend_of_record\n"
+	var result = GUTCheckCoverageComputer.parse_lcov_content(lcov)
+	assert_true(result.has("/project/src/a.gd"))
+	assert_almost_eq(result["/project/src/a.gd"], 80.0, 0.01)
+	assert_true(result.has("_total_percentage"))
+	assert_almost_eq(result["_total_percentage"], 80.0, 0.01)
+
+func test_parse_lcov_multiple_records():
+	var lcov = "SF:/p/a.gd\nLF:10\nLH:5\nend_of_record\nSF:/p/b.gd\nLF:10\nLH:10\nend_of_record\n"
+	var result = GUTCheckCoverageComputer.parse_lcov_content(lcov)
+	assert_almost_eq(result["/p/a.gd"], 50.0, 0.01)
+	assert_almost_eq(result["/p/b.gd"], 100.0, 0.01)
+	assert_almost_eq(result["_total_percentage"], 75.0, 0.01)
+
+func test_parse_lcov_with_project_path():
+	var lcov = "SF:/home/user/project/src/a.gd\nLF:4\nLH:4\nend_of_record\n"
+	var result = GUTCheckCoverageComputer.parse_lcov_content(lcov, "/home/user/project/")
+	assert_true(result.has("res://src/a.gd"))
+	assert_almost_eq(result["res://src/a.gd"], 100.0, 0.01)
+
+func test_parse_lcov_empty():
+	var result = GUTCheckCoverageComputer.parse_lcov_content("")
+	assert_false(result.has("_total_percentage"))
+
+func test_parse_lcov_zero_lines():
+	var lcov = "SF:/p/empty.gd\nLF:0\nLH:0\nend_of_record\n"
+	var result = GUTCheckCoverageComputer.parse_lcov_content(lcov)
+	# LF:0 means the file should not get a percentage entry
+	assert_false(result.has("/p/empty.gd"))
+
+
+# ---------------------------------------------------------------------------
+# compute_script_coverage — build a ScriptMap with known probes
+# ---------------------------------------------------------------------------
+
+func _build_test_script_map() -> GUTCheckScriptMap:
+	# Build a minimal script map with 3 executable lines in a function,
+	# plus one branch (if) with true/false probes.
+	var sm = GUTCheckScriptMap.new()
+	sm.path = "res://test_coverage.gd"
+
+	# func foo():       line 1 (FUNC_DEF)
+	# \tvar a = 1       line 2 (EXECUTABLE)
+	# \tif a > 0:       line 3 (BRANCH_IF)
+	# \t\treturn a      line 4 (EXECUTABLE)
+	# \tvar b = 2       line 5 (EXECUTABLE)
+
+	sm.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.FUNC_DEF, "foo")
+	sm.lines[2] = GUTCheckLineInfo.new(2, GUTCheckScriptMap.LineType.EXECUTABLE, "foo")
+	sm.lines[3] = GUTCheckLineInfo.new(3, GUTCheckScriptMap.LineType.BRANCH_IF, "foo")
+	sm.lines[4] = GUTCheckLineInfo.new(4, GUTCheckScriptMap.LineType.EXECUTABLE, "foo")
+	sm.lines[5] = GUTCheckLineInfo.new(5, GUTCheckScriptMap.LineType.EXECUTABLE, "foo")
+
+	# Function info
+	var func_info = GUTCheckFunctionInfo.new("foo", 1)
+	func_info.end_line = 5
+	sm.functions.append(func_info)
+
+	# Assign line probes: lines 2,3,4,5 are executable -> probe IDs 0,1,2,3
+	sm.probe_to_line[0] = 2
+	sm.probe_to_line[1] = 3
+	sm.probe_to_line[2] = 4
+	sm.probe_to_line[3] = 5
+	sm.probe_count = 4
+
+	# Branch probes for the if on line 3: true=pid4, false=pid5
+	sm.branches.append(GUTCheckBranchInfo.new(3, 0, 0, 4, true))
+	sm.branches.append(GUTCheckBranchInfo.new(3, 0, 1, 5, false))
+	sm.probe_count = 6
+
+	return sm
+
+
+func test_compute_script_coverage_all_hit():
+	var sm = _build_test_script_map()
+	# All line probes hit, both branch probes hit
+	var hits := PackedInt32Array([1, 1, 1, 1, 1, 1])
+	var result = GUTCheckCoverageComputer.compute_script_coverage(sm, hits)
+
+	assert_eq(result.lines_found, 4, "4 executable lines")
+	assert_eq(result.lines_hit, 4)
+	assert_almost_eq(result.line_pct, 100.0, 0.01)
+	assert_eq(result.branches_found, 2)
+	assert_eq(result.branches_hit, 2)
+	assert_almost_eq(result.branch_pct, 100.0, 0.01)
+	assert_eq(result.funcs_found, 1)
+	assert_eq(result.funcs_hit, 1)
+	assert_eq(result.uncovered_lines.size(), 0)
+
+
+func test_compute_script_coverage_partial():
+	var sm = _build_test_script_map()
+	# Line probes: lines 2,3 hit; lines 4,5 not hit. Branch: true hit, false not.
+	var hits := PackedInt32Array([1, 1, 0, 0, 1, 0])
+	var result = GUTCheckCoverageComputer.compute_script_coverage(sm, hits)
+
+	assert_eq(result.lines_hit, 2)
+	assert_eq(result.lines_found, 4)
+	assert_almost_eq(result.line_pct, 50.0, 0.01)
+	assert_eq(result.branches_hit, 1)
+	assert_eq(result.branches_found, 2)
+	assert_true(result.uncovered_lines.size() > 0)
+
+
+func test_compute_script_coverage_none_hit():
+	var sm = _build_test_script_map()
+	var hits := PackedInt32Array([0, 0, 0, 0, 0, 0])
+	var result = GUTCheckCoverageComputer.compute_script_coverage(sm, hits)
+
+	assert_eq(result.lines_hit, 0)
+	assert_almost_eq(result.line_pct, 0.0, 0.01)
+	assert_eq(result.branches_hit, 0)
+	assert_eq(result.funcs_hit, 0)
+	assert_eq(result.uncovered_lines.size(), 4)
+
+
+# ---------------------------------------------------------------------------
+# aggregate_coverage
+# ---------------------------------------------------------------------------
+
+func test_aggregate_coverage_multiple_scripts():
+	var reports = [
+		{
+			"lines_found": 10, "lines_hit": 8,
+			"branches_found": 4, "branches_hit": 2,
+			"funcs_found": 3, "funcs_hit": 3,
+		},
+		{
+			"lines_found": 20, "lines_hit": 10,
+			"branches_found": 6, "branches_hit": 6,
+			"funcs_found": 5, "funcs_hit": 4,
+		},
+	]
+	var agg = GUTCheckCoverageComputer.aggregate_coverage(reports)
+	assert_eq(agg.total_lines_found, 30)
+	assert_eq(agg.total_lines_hit, 18)
+	assert_almost_eq(agg.total_line_pct, 60.0, 0.01)
+	assert_eq(agg.total_branches_found, 10)
+	assert_eq(agg.total_branches_hit, 8)
+	assert_almost_eq(agg.total_branch_pct, 80.0, 0.01)
+	assert_eq(agg.total_funcs_found, 8)
+	assert_eq(agg.total_funcs_hit, 7)
+
+func test_aggregate_coverage_empty():
+	var agg = GUTCheckCoverageComputer.aggregate_coverage([])
+	assert_eq(agg.total_lines_found, 0)
+	assert_eq(agg.total_lines_hit, 0)
+	assert_almost_eq(agg.total_line_pct, 0.0, 0.01)
+
+func test_aggregate_coverage_single():
+	var reports = [{
+		"lines_found": 5, "lines_hit": 5,
+		"branches_found": 0, "branches_hit": 0,
+		"funcs_found": 1, "funcs_hit": 1,
+	}]
+	var agg = GUTCheckCoverageComputer.aggregate_coverage(reports)
+	assert_eq(agg.total_lines_found, 5)
+	assert_almost_eq(agg.total_line_pct, 100.0, 0.01)
