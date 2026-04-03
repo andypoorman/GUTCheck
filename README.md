@@ -1,5 +1,8 @@
 # GUTCheck: Code coverage for Godot Unit Test
 
+[![CI](https://github.com/andypoorman/GUTCheck/actions/workflows/ci.yml/badge.svg)](https://github.com/andypoorman/GUTCheck/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/andypoorman/GUTCheck/graph/badge.svg)](https://codecov.io/gh/andypoorman/GUTCheck)
+
 Code coverage for [GUT](https://github.com/bitwes/Gut) (Godot Unit Test).
 
 GUTCheck instruments your GDScript source files at runtime, tracks which lines and branches execute during your test run, and outputs LCOV or Cobertura XML coverage reports compatible with GitHub Actions, Codecov, Coveralls, and other standard CI tools.
