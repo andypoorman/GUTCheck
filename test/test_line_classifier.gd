@@ -297,3 +297,57 @@ func test_property_accessor_not_assigned_probe():
 		var line_num: int = map.probe_to_line[probe_id]
 		assert_ne(map.lines[line_num].type, GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR,
 			"Probe should not be on a PROPERTY_ACCESSOR line")
+
+
+# ---------------------------------------------------------------------------
+# Ternary-if classification
+# ---------------------------------------------------------------------------
+
+func test_simple_ternary_classified():
+	var source = 'func foo():\n\tvar x = "yes" if true else "no"'
+	var map = _classify(source)
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY,
+		"Line with ternary-if should be EXECUTABLE_TERNARY")
+	assert_eq(map.lines[2].ternary_count, 1,
+		"Should have exactly 1 ternary expression")
+
+
+func test_nested_ternary_classified():
+	var source = 'func foo():\n\tvar z = "a" if x else "b" if y else "c"'
+	var map = _classify(source)
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY,
+		"Line with nested ternary should be EXECUTABLE_TERNARY")
+	assert_eq(map.lines[2].ternary_count, 2,
+		"Nested ternary should count as 2 ternary expressions")
+
+
+func test_ternary_branch_probes_assigned():
+	var source = 'func foo():\n\tvar x = "yes" if true else "no"'
+	var map = _classify(source)
+	var branches_on_line := map.get_branches_for_line(2)
+	assert_eq(branches_on_line.size(), 2,
+		"Ternary should have 2 branch probes (true + false)")
+	var has_true := false
+	var has_false := false
+	for b in branches_on_line:
+		if b.is_true_branch:
+			has_true = true
+		else:
+			has_false = true
+	assert_true(has_true, "Should have true branch probe")
+	assert_true(has_false, "Should have false branch probe")
+
+
+func test_nested_ternary_branch_probes():
+	var source = 'func foo():\n\tvar z = "a" if x else "b" if y else "c"'
+	var map = _classify(source)
+	var branches_on_line := map.get_branches_for_line(2)
+	assert_eq(branches_on_line.size(), 4,
+		"Nested ternary should have 4 branch probes (2 per ternary)")
+
+
+func test_statement_if_not_ternary():
+	var source = "func foo():\n\tif true:"
+	var map = _classify(source)
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.BRANCH_IF,
+		"Statement-level if should still be BRANCH_IF, not EXECUTABLE_TERNARY")

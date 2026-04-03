@@ -15,6 +15,7 @@ enum LineType {
 	FUNC_DEF,
 	CLASS_DEF,
 	PROPERTY_ACCESSOR, # get: or set(...): lines
+	EXECUTABLE_TERNARY, # Executable line containing inline ternary (if/else expression)
 	NON_EXECUTABLE,
 	CONTINUATION,
 }
@@ -180,6 +181,19 @@ func assign_branch_probes() -> void:
 				branches.append(GUTCheckBranchInfo.new(line_num, current_match_block, current_match_branch, pid, true))
 				probe_count += 1
 				current_match_branch += 1
+
+			LineType.EXECUTABLE_TERNARY:
+				# Each ternary-if on the line gets its own block with true/false probes
+				for _t in range(info.ternary_count):
+					var block := next_block_id
+					next_block_id += 1
+					var true_pid := probe_count
+					branches.append(GUTCheckBranchInfo.new(line_num, block, 0, true_pid, true))
+					probe_count += 1
+					var false_pid := probe_count
+					branches.append(GUTCheckBranchInfo.new(line_num, block, 1, false_pid, false))
+					probe_count += 1
+				current_if_block = -1
 
 			_:
 				if info.type != LineType.CONTINUATION and info.type != LineType.NON_EXECUTABLE:

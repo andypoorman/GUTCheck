@@ -69,6 +69,11 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 					var info = GUTCheckLineInfo.new(
 						first_token_line, line_type, func_name, cls_name)
 					info.statement_count = _count_statements(current_line_tokens)
+					if line_type == GUTCheckScriptMap.LineType.EXECUTABLE:
+						var tc := _count_ternary_expressions(current_line_tokens)
+						if tc > 0:
+							info.ternary_count = tc
+							info.type = GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY
 					map.lines[first_token_line] = info
 					_handle_scope_entry(current_line_tokens, first_token_line,
 						indent_level, pending_static, func_stack, class_stack,
@@ -270,6 +275,25 @@ func _is_property_accessor(tokens: Array) -> bool:
 		return true
 
 	return false
+
+
+func _count_ternary_expressions(tokens: Array) -> int:
+	## Count inline ternary-if expressions (value if condition else other).
+	## A ternary `if` is any KW_IF that is not the first keyword on the line
+	## (i.e. not a statement-level if). We count matching if/else pairs at
+	## depth 0 that are preceded by a non-keyword expression token.
+	var count := 0
+	for i in range(1, tokens.size()):
+		if tokens[i].type == GUTCheckToken.Type.KW_IF:
+			# Verify there's a corresponding KW_ELSE after it — true ternaries
+			# always have both if and else. Scan forward for the matching else.
+			for j in range(i + 1, tokens.size()):
+				if tokens[j].type == GUTCheckToken.Type.KW_ELSE:
+					count += 1
+					break
+				# If we hit another KW_IF first, that's a nested ternary — the
+				# outer if's else is still further out. Keep scanning.
+	return count
 
 
 func _count_statements(tokens: Array) -> int:
