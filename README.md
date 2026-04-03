@@ -280,7 +280,7 @@ Early release
 - **Static variables** - GDScript static variables persist across test runs. GUTCheck's own collector uses static state and clears it between runs, but if your instrumented scripts have static variables, their state carries over as it normally would.
 - **Lambda coverage** - Inline lambdas (`var f = func(): return 42`) are treated as a single executable line. The lambda body isn't separately tracked.
 - **Compilation failures** - Scripts that fail to compile after instrumentation are automatically rolled back and skipped. The original source is restored and a warning is logged.
-- **Performance** - Each instrumented line adds one static function call. Each branch point adds one call that checks truthiness. Should be negligible for test runs but hasn't been benchmarked beyond ~50 scripts.
+- **Performance** - Each instrumented line adds one static function call. Each branch point adds one call that checks truthiness. Should be negligible for test runs but hasn't been benchmarked beyond ~50 scripts w/ ~900 tests.
 
 ## License
 
