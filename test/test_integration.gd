@@ -860,6 +860,74 @@ func test_cobertura_exporter_generate_with_source_root():
 	assert_string_contains(xml, '/home/user/project')
 
 
+func test_cobertura_exporter_export_to_disk():
+	var exporter = GUTCheckCoberturaExporter.new()
+	var tmp_path := "user://test_integration_cobertura.xml"
+	var result := exporter.export_cobertura(tmp_path)
+	assert_eq(result, OK, "export_cobertura should return OK")
+	var file := FileAccess.open(tmp_path, FileAccess.READ)
+	assert_not_null(file, "Cobertura XML file should exist on disk")
+	if file:
+		var content := file.get_as_text()
+		file.close()
+		assert_string_contains(content, '<?xml version="1.0" ?>')
+		assert_string_contains(content, '</coverage>')
+		DirAccess.remove_absolute(tmp_path)
+
+
+func test_cobertura_exporter_export_to_disk_with_source_root():
+	var exporter = GUTCheckCoberturaExporter.new()
+	var tmp_path := "user://test_integration_cobertura_src.xml"
+	var result := exporter.export_cobertura(tmp_path, "/my/project")
+	assert_eq(result, OK)
+	var file := FileAccess.open(tmp_path, FileAccess.READ)
+	assert_not_null(file)
+	if file:
+		var content := file.get_as_text()
+		file.close()
+		assert_string_contains(content, '<source>/my/project</source>')
+		DirAccess.remove_absolute(tmp_path)
+
+
+func test_cobertura_exporter_export_bad_path():
+	var exporter = GUTCheckCoberturaExporter.new()
+	var result := exporter.export_cobertura("/nonexistent/dir/file.xml")
+	assert_ne(result, OK, "Bad path should return error")
+
+
+func test_cobertura_xml_contains_package_and_class_structure():
+	# Exercise the full XML generation path including packages, classes,
+	# methods, and lines -- all counting toward self-coverage.
+	var exporter = GUTCheckCoberturaExporter.new()
+	var xml = exporter.generate_cobertura()
+	assert_string_contains(xml, '</coverage>')
+	# In self-coverage mode, there will be real registered scripts
+	if xml.contains('<package '):
+		assert_string_contains(xml, '<classes>')
+		assert_string_contains(xml, '</classes>')
+		assert_string_contains(xml, '<methods>')
+		assert_string_contains(xml, '</methods>')
+		assert_string_contains(xml, '<lines>')
+		assert_string_contains(xml, '</lines>')
+		assert_string_contains(xml, '<line number=')
+		assert_string_contains(xml, 'line-rate=')
+		assert_string_contains(xml, 'branch-rate=')
+		assert_string_contains(xml, 'timestamp=')
+
+
+func test_cobertura_xml_branch_elements_present():
+	# In self-coverage mode, instrumented scripts have branches (if/elif/else).
+	# This exercises _emit_line_element's branch path and _get_branch_data_for_line.
+	var exporter = GUTCheckCoberturaExporter.new()
+	var xml = exporter.generate_cobertura()
+	assert_string_contains(xml, '</coverage>')
+	if xml.contains('branch="true"'):
+		assert_string_contains(xml, 'condition-coverage=')
+		assert_string_contains(xml, '<conditions>')
+		assert_string_contains(xml, '<condition number=')
+		assert_string_contains(xml, 'type="jump"')
+
+
 # ===========================================================================
 # SCRIPT REGISTRY — pure unit tests
 # ===========================================================================
@@ -1324,6 +1392,297 @@ func test_instrument_line_non_executable():
 func test_instrument_line_continuation():
 	var result = GUTCheckProbeInjector.instrument_line("\t\"key\": val,", GUTCheckScriptMap.LineType.CONTINUATION, 0, 0)
 	assert_eq(result, "\t\"key\": val,", "CONTINUATION should be returned unchanged")
+
+func test_instrument_line_ternary():
+	var bps = [
+		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
+		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
+	]
+	var result = GUTCheckProbeInjector.instrument_line('\tvar x = "a" if c else "b"', GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY, 1, 5, 1, bps)
+	assert_string_contains(result, "GUTCheckCollector.hit(1,5)")
+	assert_string_contains(result, "GUTCheckCollector.br2(")
+
+
+# ---------------------------------------------------------------------------
+# instrument_semicolon_statements — string, bracket, and escape edge cases
+# ---------------------------------------------------------------------------
+
+func test_semicolon_stmts_with_quoted_string():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a;b"; var t = 1', 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Semicolon inside string should not create extra probe")
+
+func test_semicolon_stmts_with_single_quoted_string():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("var s = 'a;b'; var t = 1", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Semicolon inside single-quoted string should not split")
+
+func test_semicolon_stmts_with_brackets():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a, b); bar([1, 2])", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Should handle brackets correctly")
+
+func test_semicolon_stmts_with_nested_brackets():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo({a: [1]}); bar()", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Should handle nested brackets correctly")
+
+func test_semicolon_stmts_semicolon_in_parens():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a; b)", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 1, "Semicolon inside parens should not split")
+
+func test_semicolon_stmts_closing_brackets():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a); bar(b)", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Closing brackets should allow semicolons at depth 0 to split")
+
+func test_semicolon_stmts_empty_trailing():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("a = 1;", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 1, "Trailing semicolon should not create empty statement")
+
+func test_semicolon_stmts_string_close_and_reopen():
+	# Test that ending a string and starting a new one works
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "ab" + "cd"; var t = 1', 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Should handle string close and reopen")
+
+func test_semicolon_stmts_regular_chars():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("abc = xyz", 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 1, "Regular chars handled by else branch")
+	assert_string_contains(result, "abc = xyz")
+
+
+# ---------------------------------------------------------------------------
+# wrap_ternary — edge cases
+# ---------------------------------------------------------------------------
+
+func test_wrap_ternary_no_ternary_found():
+	var result = GUTCheckProbeInjector.wrap_ternary("var x = 1", 0, 5, [])
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+	assert_string_contains(result, "var x = 1")
+
+func test_wrap_ternary_with_branch_probes():
+	var bps = [
+		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
+		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
+	]
+	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if cond else "no"', 0, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.br2(")
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+
+func test_wrap_ternary_missing_branch_probes():
+	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if cond else "no"', 0, 5, [])
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+
+func test_wrap_ternary_multiple_ternaries():
+	var bps = [
+		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
+		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
+		GUTCheckBranchInfo.new(1, 1, 0, 12, true),
+		GUTCheckBranchInfo.new(1, 1, 1, 13, false),
+	]
+	var result = GUTCheckProbeInjector.wrap_ternary('"a" if x else "b" if y else "c"', 0, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
+	var br2_count = result.count("GUTCheckCollector.br2(")
+	assert_eq(br2_count, 2, "Should wrap both ternary conditions")
+
+func test_wrap_ternary_condition_extraction():
+	var bps = [
+		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
+		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
+	]
+	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if a > b else "no"', 0, 5, bps)
+	assert_string_contains(result, "a > b)")
+	assert_string_contains(result, " else ")
+
+
+# ---------------------------------------------------------------------------
+# find_ternary_if_positions — string and bracket handling
+# ---------------------------------------------------------------------------
+
+func test_find_ternary_positions_simple():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions('var x = "yes" if cond else "no"')
+	assert_eq(result.size(), 1, "Should find one ternary")
+
+func test_find_ternary_positions_none():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = 1")
+	assert_eq(result.size(), 0, "Should find no ternary in simple assignment")
+
+func test_find_ternary_positions_if_in_string():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions('var x = "check if true"')
+	assert_eq(result.size(), 0, "if inside string should not match")
+
+func test_find_ternary_positions_if_in_brackets():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = foo( a if b else c )")
+	assert_eq(result.size(), 0, "if inside brackets should not match at depth>0")
+
+func test_find_ternary_positions_escaped_string():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions('var x = "a\\"b" if cond else "c"')
+	assert_eq(result.size(), 1, "Should handle escaped quotes in strings")
+
+func test_find_ternary_positions_nested():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions('"a" if x else "b" if y else "c"')
+	assert_eq(result.size(), 2, "Should find two ternary-ifs in nested expression")
+
+func test_find_ternary_positions_single_quoted_string():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = 'check if true'")
+	assert_eq(result.size(), 0, "if inside single-quoted string should not match")
+
+func test_find_ternary_positions_bracket_depth():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = [a if b else c]")
+	assert_eq(result.size(), 0, "Ternary inside square brackets should not match")
+
+func test_find_ternary_positions_curly_brackets():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = {a if b else c}")
+	assert_eq(result.size(), 0, "Ternary inside curly brackets should not match")
+
+func test_find_ternary_positions_closing_brackets():
+	var result = GUTCheckProbeInjector.find_ternary_if_positions("foo(a) if cond else bar(b)")
+	assert_eq(result.size(), 1, "Ternary after closing bracket should be detected")
+
+
+# ---------------------------------------------------------------------------
+# _find_matching_else — string and nesting edge cases
+# ---------------------------------------------------------------------------
+
+func test_find_matching_else_simple():
+	var content = '"yes" if cond else "no"'
+	var result = GUTCheckProbeInjector._find_matching_else(content, 10)
+	assert_gt(result, 0, "Should find else position")
+
+func test_find_matching_else_nested():
+	var content = '"a" if x else "b" if y else "c"'
+	var if_pos = content.find(" if ")
+	var result = GUTCheckProbeInjector._find_matching_else(content, if_pos + 4)
+	assert_gt(result, 0, "Should find matching else")
+
+func test_find_matching_else_string_content():
+	var content = 'x if "has else in it" else y'
+	var if_pos = content.find(" if ")
+	var result = GUTCheckProbeInjector._find_matching_else(content, if_pos + 4)
+	assert_gt(result, 0, "Should skip else inside string and find real else")
+
+func test_find_matching_else_brackets():
+	var content = 'foo if bar(else_thing) else baz'
+	var if_pos = content.find(" if ")
+	var result = GUTCheckProbeInjector._find_matching_else(content, if_pos + 4)
+	assert_gt(result, 0, "Should skip else inside brackets")
+
+func test_find_matching_else_not_found():
+	var content = 'x if cond'
+	var result = GUTCheckProbeInjector._find_matching_else(content, 6)
+	assert_eq(result, -1, "Should return -1 when no else found")
+
+func test_find_matching_else_escaped_string():
+	var content = 'x if "a\\"else" else y'
+	var if_pos = content.find(" if ")
+	var result = GUTCheckProbeInjector._find_matching_else(content, if_pos + 4)
+	assert_gt(result, 0, "Should handle escaped quotes and find real else")
+
+func test_find_matching_else_single_quoted():
+	var content = "x if 'has else' else y"
+	var if_pos = content.find(" if ")
+	var result = GUTCheckProbeInjector._find_matching_else(content, if_pos + 4)
+	assert_gt(result, 0, "Should skip else inside single-quoted string")
+
+func test_find_matching_else_nested_ternary_skip():
+	var content = 'a if b if c else d else e'
+	var result = GUTCheckProbeInjector._find_matching_else(content, 4)
+	assert_gt(result, 0, "Should handle nested ternary else skipping")
+
+
+# ---------------------------------------------------------------------------
+# inject_match_pattern_probe — direct call coverage
+# ---------------------------------------------------------------------------
+
+func test_inject_match_pattern_probe_direct():
+	var result = GUTCheckProbeInjector.inject_match_pattern_probe("42:", 5, 20)
+	assert_eq(result, "42:", "Should return content unchanged (no-op)")
+
+func test_inject_match_pattern_probe_string_pattern():
+	var result = GUTCheckProbeInjector.inject_match_pattern_probe('"hello":', 3, 15)
+	assert_eq(result, '"hello":', "Should return string pattern unchanged")
+
+
+# ---------------------------------------------------------------------------
+# find_block_colon — string and bracket edge cases
+# ---------------------------------------------------------------------------
+
+func test_find_block_colon_single_quoted_string():
+	var pos = GUTCheckProbeInjector.find_block_colon("if s == 'a:b':")
+	assert_eq(pos, 13, "Should handle single-quoted strings")
+
+func test_find_block_colon_string_with_backslash():
+	# String contains a backslash — triggers the escape continue path
+	var pos = GUTCheckProbeInjector.find_block_colon('if s == "a\\nb"  :')
+	assert_gt(pos, -1, "Should handle backslash in strings")
+
+func test_find_block_colon_nested_curly_brackets():
+	var pos = GUTCheckProbeInjector.find_block_colon("if foo({a: 1}):")
+	assert_eq(pos, 14, "Should skip colons inside nested brackets")
+
+func test_find_block_colon_closing_brackets():
+	var pos = GUTCheckProbeInjector.find_block_colon("if (a) and (b):")
+	assert_eq(pos, 14, "Should handle closing brackets correctly")
+
+
+# ---------------------------------------------------------------------------
+# find_for_in — string and bracket edge cases
+# ---------------------------------------------------------------------------
+
+func test_find_for_in_with_brackets():
+	var pos = GUTCheckProbeInjector.find_for_in("for k in foo(bar):")
+	assert_eq(pos, 5, "Should find 'in' with bracket expressions")
+
+func test_find_for_in_single_quoted_string():
+	var pos = GUTCheckProbeInjector.find_for_in("for x in ['in']:")
+	assert_eq(pos, 5, "Should handle single-quoted strings")
+
+func test_find_for_in_nested_brackets():
+	var pos = GUTCheckProbeInjector.find_for_in("for x in {a: [1]}:")
+	assert_eq(pos, 5, "Should handle nested brackets after 'in'")
+
+func test_find_for_in_escaped_string():
+	var pos = GUTCheckProbeInjector.find_for_in('for x in ["a\\"in"]:')
+	assert_eq(pos, 5, "Should handle escaped quotes in strings")
+
+func test_find_for_in_closing_brackets():
+	var pos = GUTCheckProbeInjector.find_for_in("for (k) in items:")
+	assert_gt(pos, 4, "Should handle opening and closing brackets before 'in'")
+
+
+# ---------------------------------------------------------------------------
+# wrap_for_br2 — no-colon edge case
+# ---------------------------------------------------------------------------
+
+func test_wrap_for_br2_no_colon_with_in():
+	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5)", 1, 5, [])
+	assert_eq(result, "for i in range(5)", "No colon should return unchanged")
+
+
+# ---------------------------------------------------------------------------
+# wrap_condition_br2 — after_colon and mixed probe scenarios
+# ---------------------------------------------------------------------------
+
+func test_wrap_condition_br2_with_after_colon_content():
+	var bps = _make_branch_probes(10, 11)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0: pass", "if", 1, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.hit_br2(1,5,10,11,")
+	assert_string_contains(result, " pass")
+
+func test_wrap_condition_br2_only_true_probe():
+	var bps = [GUTCheckBranchInfo.new(1, 0, 0, 10, true)]
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x:", "if", 1, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.br(1,5,")
+
+func test_wrap_condition_br2_extra_spaces():
+	var bps = _make_branch_probes(10, 11)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if   x > 0:", "if", 1, 5, bps)
+	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
+	assert_string_contains(result, "x > 0")
 
 
 # ===========================================================================
