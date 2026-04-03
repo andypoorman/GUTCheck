@@ -8,6 +8,8 @@ var cls_name: String
 ## Number of semicolon-separated statements on this line.
 ## 1 means a normal single-statement line.
 var statement_count: int = 1
+## Number of ternary-if expressions on this line (for branch coverage).
+var ternary_count: int = 0
 
 func _init(p_line: int, p_type: int, p_func: String = "", p_class: String = ""):
 	line_number = p_line
