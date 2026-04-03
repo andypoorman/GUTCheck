@@ -135,7 +135,7 @@ static func wrap_condition_br2(content: String, keyword: String, sid: int, pid: 
 			false_pid = bp.probe_id
 
 	if true_pid >= 0 and false_pid >= 0:
-		return "%s GUTCheckCollector.br2(%d,%d,%d,%s):%s" % [keyword, sid, true_pid, false_pid, condition, after_colon]
+		return "%s GUTCheckCollector.hit_br2(%d,%d,%d,%d,%s):%s" % [keyword, sid, pid, true_pid, false_pid, condition, after_colon]
 
 	return "%s GUTCheckCollector.br(%d,%d,%s):%s" % [keyword, sid, pid, condition, after_colon]
 
@@ -165,7 +165,7 @@ static func wrap_for_br2(content: String, sid: int, pid: int, branch_probes: Arr
 			false_pid = bp.probe_id
 
 	if true_pid >= 0 and false_pid >= 0:
-		return "%s in GUTCheckCollector.br2rng(%d,%d,%d,%s):%s" % [before_in, sid, true_pid, false_pid, iterable, after_colon]
+		return "%s in GUTCheckCollector.hit_br2rng(%d,%d,%d,%d,%s):%s" % [before_in, sid, pid, true_pid, false_pid, iterable, after_colon]
 
 	return "%s in GUTCheckCollector.rng(%d,%d,%s):%s" % [before_in, sid, pid, iterable, after_colon]
 

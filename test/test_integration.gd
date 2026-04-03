@@ -674,7 +674,7 @@ func test_instrument_if_elif_else():
 	var source = "func foo(x):\n\tif x > 5:\n\t\treturn 1\n\telif x > 0:\n\t\treturn 0\n\telse:\n\t\treturn -1"
 	var result = _instrumenter.instrument(source, 99, "res://test_integ.gd")
 	assert_gt(result.probe_count, 0)
-	assert_string_contains(result.source, "GUTCheckCollector.br2(")
+	assert_string_contains(result.source, "GUTCheckCollector.hit_br2(")
 	assert_string_contains(result.source, "GUTCheckCollector.hit(")
 	# else line should be unchanged
 	var lines = result.source.split("\n")
@@ -686,13 +686,13 @@ func test_instrument_if_elif_else():
 func test_instrument_while_loop():
 	var source = "func foo():\n\tvar i = 0\n\twhile i < 10:\n\t\ti += 1"
 	var result = _instrumenter.instrument(source, 50)
-	assert_string_contains(result.source, "while GUTCheckCollector.br2(")
+	assert_string_contains(result.source, "while GUTCheckCollector.hit_br2(")
 
 
 func test_instrument_for_loop():
 	var source = "func foo():\n\tfor i in range(5):\n\t\tprint(i)"
 	var result = _instrumenter.instrument(source, 51)
-	assert_string_contains(result.source, "GUTCheckCollector.br2rng(")
+	assert_string_contains(result.source, "GUTCheckCollector.hit_br2rng(")
 
 
 func test_instrument_match():
@@ -1205,7 +1205,7 @@ func _make_branch_probes(true_pid: int, false_pid: int) -> Array:
 func test_wrap_condition_br2_with_branch_probes():
 	var bps = _make_branch_probes(10, 11)
 	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, 5, bps)
-	assert_string_contains(result, "GUTCheckCollector.br2(1,10,11,")
+	assert_string_contains(result, "GUTCheckCollector.hit_br2(1,5,10,11,")
 	assert_string_contains(result, "x > 0")
 
 func test_wrap_condition_br2_without_branch_probes():
@@ -1215,12 +1215,12 @@ func test_wrap_condition_br2_without_branch_probes():
 func test_wrap_condition_br2_elif():
 	var bps = _make_branch_probes(20, 21)
 	var result = GUTCheckProbeInjector.wrap_condition_br2("elif y < 3:", "elif", 2, 8, bps)
-	assert_string_contains(result, "elif GUTCheckCollector.br2(2,20,21,")
+	assert_string_contains(result, "elif GUTCheckCollector.hit_br2(2,8,20,21,")
 
 func test_wrap_condition_br2_while():
 	var bps = _make_branch_probes(30, 31)
 	var result = GUTCheckProbeInjector.wrap_condition_br2("while active:", "while", 3, 9, bps)
-	assert_string_contains(result, "while GUTCheckCollector.br2(3,30,31,")
+	assert_string_contains(result, "while GUTCheckCollector.hit_br2(3,9,30,31,")
 
 func test_wrap_condition_br2_no_colon():
 	var result = GUTCheckProbeInjector.wrap_condition_br2("if something", "if", 0, 0, [])
@@ -1234,7 +1234,7 @@ func test_wrap_condition_br2_no_colon():
 func test_wrap_for_br2_with_branch_probes():
 	var bps = _make_branch_probes(40, 41)
 	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, 5, bps)
-	assert_string_contains(result, "GUTCheckCollector.br2rng(1,40,41,")
+	assert_string_contains(result, "GUTCheckCollector.hit_br2rng(1,5,40,41,")
 	assert_string_contains(result, "range(5)")
 
 func test_wrap_for_br2_without_branch_probes():
@@ -1310,22 +1310,22 @@ func test_instrument_line_property_accessor():
 func test_instrument_line_branch_if():
 	var bps = _make_branch_probes(10, 11)
 	var result = GUTCheckProbeInjector.instrument_line("\tif x > 0:", GUTCheckScriptMap.LineType.BRANCH_IF, 1, 5, 1, bps)
-	assert_string_contains(result, "GUTCheckCollector.br2(")
+	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 
 func test_instrument_line_branch_elif():
 	var bps = _make_branch_probes(20, 21)
 	var result = GUTCheckProbeInjector.instrument_line("\telif y:", GUTCheckScriptMap.LineType.BRANCH_ELIF, 1, 5, 1, bps)
-	assert_string_contains(result, "GUTCheckCollector.br2(")
+	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 
 func test_instrument_line_loop_while():
 	var bps = _make_branch_probes(30, 31)
 	var result = GUTCheckProbeInjector.instrument_line("\twhile active:", GUTCheckScriptMap.LineType.LOOP_WHILE, 1, 5, 1, bps)
-	assert_string_contains(result, "GUTCheckCollector.br2(")
+	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 
 func test_instrument_line_loop_for():
 	var bps = _make_branch_probes(40, 41)
 	var result = GUTCheckProbeInjector.instrument_line("\tfor i in items:", GUTCheckScriptMap.LineType.LOOP_FOR, 1, 5, 1, bps)
-	assert_string_contains(result, "GUTCheckCollector.br2rng(")
+	assert_string_contains(result, "GUTCheckCollector.hit_br2rng(")
 
 func test_instrument_line_branch_match():
 	var result = GUTCheckProbeInjector.instrument_line("\tmatch val:", GUTCheckScriptMap.LineType.BRANCH_MATCH, 1, 5)

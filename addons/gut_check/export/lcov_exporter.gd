@@ -149,6 +149,10 @@ func _emit_line_records(lines: PackedStringArray, script_map, hits: PackedInt32A
 			line_probes[line_num] = []
 		line_probes[line_num].append(probe_id)
 
+	# Branch lines fire br2() instead of hit(), so line probes show 0.
+	# Sum branch probe hits per line as a fallback.
+	var branch_line_hits: Dictionary = _build_branch_line_hits(script_map, hits)
+
 	var executable_lines = script_map.get_executable_lines_sorted()
 	for line_num in executable_lines:
 		# For multi-statement lines, use the minimum hit count across all
@@ -161,6 +165,10 @@ func _emit_line_records(lines: PackedStringArray, script_map, hits: PackedInt32A
 				if probes[j] < hits.size():
 					hit_count = mini(hit_count, hits[probes[j]])
 
+		# Fall back to branch probe hits for branch lines
+		if hit_count == 0 and branch_line_hits.has(line_num):
+			hit_count = branch_line_hits[line_num]
+
 		lines.append("DA:%d,%d" % [line_num, hit_count])
 		lines_found += 1
 		if hit_count > 0:
@@ -171,17 +179,34 @@ func _emit_line_records(lines: PackedStringArray, script_map, hits: PackedInt32A
 
 
 func _get_function_hit_count(func_info, script_map, hits: PackedInt32Array) -> int:
-	# A function's hit count is the hit count of its first executable line's first probe
+	# A function's hit count is the hit count of its first executable line.
+	# Branch lines fire br2() instead of hit(), so check branch probes too.
 	var exec_lines = script_map.get_executable_lines_sorted()
 	for line_num in exec_lines:
 		if line_num >= func_info.start_line and (func_info.end_line == -1 or line_num <= func_info.end_line):
+			# Try line probes first
 			for probe_id: int in script_map.probe_to_line:
 				if script_map.probe_to_line[probe_id] == line_num:
-					if probe_id < hits.size():
+					if probe_id < hits.size() and hits[probe_id] > 0:
 						return hits[probe_id]
-					return 0
-			break
+					break
+			# Fall back to branch probes on this line
+			for b in script_map.branches:
+				if b.line_number == line_num and b.probe_id < hits.size() and hits[b.probe_id] > 0:
+					return hits[b.probe_id]
+			return 0
 	return 0
+
+
+func _build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
+	var result: Dictionary = {}
+	for b in script_map.branches:
+		var h := 0
+		if b.probe_id < hits.size():
+			h = hits[b.probe_id]
+		if h > 0:
+			result[b.line_number] = result.get(b.line_number, 0) + h
+	return result
 
 
 func _qualified_func_name(func_info) -> String:
