@@ -269,11 +269,11 @@ addons/gut_check/
 
 ## Status
 
-Early release. The tokenizer, parser, instrumenter, and exporters are covered by 99 unit tests. Tested on a real project (830 tests, 44 instrumented scripts, ~7500 trackable lines, ~2900 branches).
+Early release
 
 ### Known Limitations
 
-- **Inner classes** - Scripts containing inner classes (`class Foo` inside another script) cannot be instrumented. Godot's `GDScript.reload()` creates new type identities for inner classes, which breaks typed references in other scripts. Refactor inner classes to separate files with their own `class_name` as a workaround. GUTCheck detects these, skips them, and logs a warning.
+- **Inner classes** - Scripts containing inner classes (`class Foo` inside another script) cannot be instrumented. Godot's `GDScript.reload()` creates new type identities for inner classes, which breaks typed references in other scripts. Refactor inner classes to separate files with their own `class_name` as a workaround. GUTCheck detects these, skips them, and logs a warning. Current solution: don't do that
 - **Lambda coverage** - Inline lambdas are treated as single executable lines.
 - **Performance** - Each instrumented line adds one static function call. Should be negligible for test runs but hasn't been benchmarked at scale.
 - **Compilation failures** - Scripts that fail to compile after instrumentation are automatically rolled back and skipped. The original source is restored and a warning is logged.
