@@ -1174,25 +1174,6 @@ func test_instrument_semicolon_string_with_semicolon():
 
 
 # ---------------------------------------------------------------------------
-# wrap_condition
-# ---------------------------------------------------------------------------
-
-func test_wrap_condition_if():
-	var result = GUTCheckProbeInjector.wrap_condition("if x > 0:", "if", 1, 5)
-	assert_string_contains(result, "GUTCheckCollector.br(1,5,")
-	assert_string_contains(result, "x > 0")
-
-func test_wrap_condition_while():
-	var result = GUTCheckProbeInjector.wrap_condition("while running:", "while", 2, 7)
-	assert_string_contains(result, "GUTCheckCollector.br(2,7,")
-	assert_string_contains(result, "running")
-
-func test_wrap_condition_no_colon():
-	var result = GUTCheckProbeInjector.wrap_condition("if something", "if", 0, 0)
-	assert_eq(result, "if something", "Should return unchanged when no block colon")
-
-
-# ---------------------------------------------------------------------------
 # wrap_condition_br2 — with and without branch probes
 # ---------------------------------------------------------------------------
 
@@ -1228,7 +1209,7 @@ func test_wrap_condition_br2_no_colon():
 
 
 # ---------------------------------------------------------------------------
-# wrap_for_br2 and wrap_for — with and without branch probes
+# wrap_for_br2 — with and without branch probes
 # ---------------------------------------------------------------------------
 
 func test_wrap_for_br2_with_branch_probes():
@@ -1244,19 +1225,6 @@ func test_wrap_for_br2_without_branch_probes():
 func test_wrap_for_br2_no_in():
 	var result = GUTCheckProbeInjector.wrap_for_br2("for_thing:", 1, 5, [])
 	assert_eq(result, "for_thing:")
-
-func test_wrap_for_simple():
-	var result = GUTCheckProbeInjector.wrap_for("for i in range(3):", 2, 10)
-	assert_string_contains(result, "GUTCheckCollector.rng(2,10,")
-	assert_string_contains(result, "range(3)")
-
-func test_wrap_for_no_in():
-	var result = GUTCheckProbeInjector.wrap_for("for_something:", 0, 0)
-	assert_eq(result, "for_something:")
-
-func test_wrap_for_no_colon():
-	var result = GUTCheckProbeInjector.wrap_for("for i in items", 0, 0)
-	assert_eq(result, "for i in items")
 
 
 # ---------------------------------------------------------------------------

@@ -315,14 +315,6 @@ func _check_static(tokens: Array) -> bool:
 	return tokens.size() > 0 and tokens[0].type == GUTCheckToken.Type.KW_STATIC
 
 
-func _tokens_contain_call(tokens: Array) -> bool:
-	for i in range(tokens.size() - 1):
-		if tokens[i].type == GUTCheckToken.Type.IDENTIFIER or tokens[i].type == GUTCheckToken.Type.KW_PRELOAD:
-			if tokens[i + 1].type == GUTCheckToken.Type.PAREN_OPEN:
-				return true
-	return false
-
-
 func _has_trailing_colon_after_type(tokens: Array) -> bool:
 	## Checks if a var declaration has a trailing colon that introduces a
 	## get/set property block. Pattern: var name: Type:  (two colons)
