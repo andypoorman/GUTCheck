@@ -41,7 +41,7 @@ func test_const_declaration():
 
 func test_const_with_preload():
 	var map = _classify('const Foo = preload("res://foo.gd")')
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 
 
 func test_class_name_declaration():

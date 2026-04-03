@@ -10,3 +10,4 @@ coverage_html/
 
 # Godot UID files
 *.uid
+.idea/
