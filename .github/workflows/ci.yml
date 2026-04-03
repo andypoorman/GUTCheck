@@ -37,14 +37,7 @@ jobs:
         run: |
           godot --headless --path . \
             -s addons/gut/gut_cmdln.gd \
-            -gconfig=.gutconfig.ci.json 2>&1 | tee test_output.txt
-          passing=$(grep -oP 'Passing Tests\s+\K\d+' test_output.txt || echo 0)
-          failing=$(grep -oP 'Failing Tests\s+\K\d+' test_output.txt || echo 999)
-          echo "Passing: $passing, Failing: $failing"
-          if [ "$failing" -gt 0 ]; then
-            echo "::error::$failing test(s) failed"
-            exit 1
-          fi
+            -gconfig=.gutconfig.ci.json
 
       - name: Upload coverage to Codecov
         if: always()
