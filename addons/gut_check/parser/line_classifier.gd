@@ -315,14 +315,6 @@ func _check_static(tokens: Array) -> bool:
 	return tokens.size() > 0 and tokens[0].type == GUTCheckToken.Type.KW_STATIC
 
 
-func _tokens_contain_call(tokens: Array) -> bool:
-	for i in range(tokens.size() - 1):
-		if tokens[i].type == GUTCheckToken.Type.IDENTIFIER or tokens[i].type == GUTCheckToken.Type.KW_PRELOAD:
-			if tokens[i + 1].type == GUTCheckToken.Type.PAREN_OPEN:
-				return true
-	return false
-
-
 func _has_trailing_colon_after_type(tokens: Array) -> bool:
 	## Checks if a var declaration has a trailing colon that introduces a
 	## get/set property block. Pattern: var name: Type:  (two colons)
@@ -377,7 +369,7 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		if kw_idx + 1 < tokens.size() and tokens[kw_idx + 1].type == GUTCheckToken.Type.IDENTIFIER:
 			fname = tokens[kw_idx + 1].value
 		var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-		var info = GUTCheckFunctionInfo.new(fname, line_num, cls_name, has_static)
+		var info = GUTCheckFunctionInfo.new(fname, line_num, cls_name, has_static, indent)
 		func_stack.append(info)
 		map.functions.append(info)
 
@@ -385,7 +377,7 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		var cname := ""
 		if kw_idx + 1 < tokens.size() and tokens[kw_idx + 1].type == GUTCheckToken.Type.IDENTIFIER:
 			cname = tokens[kw_idx + 1].value
-		var info = GUTCheckClassInfo.new(cname, line_num)
+		var info = GUTCheckClassInfo.new(cname, line_num, indent)
 		class_stack.append(info)
 		map.classes.append(info)
 
@@ -403,10 +395,10 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 	# so we only scan for lambdas when the line's leading keyword is something
 	# else like var, return, etc.
 	if kw.type != GUTCheckToken.Type.KW_FUNC:
-		_detect_inline_lambdas(tokens, line_num, func_stack, class_stack, map)
+		_detect_inline_lambdas(tokens, line_num, indent, func_stack, class_stack, map)
 
 
-func _detect_inline_lambdas(tokens: Array, line_num: int, func_stack: Array,
+func _detect_inline_lambdas(tokens: Array, line_num: int, indent: int, func_stack: Array,
 		class_stack: Array, map: GUTCheckScriptMap) -> void:
 	## Scan a token list for inline lambda definitions (func( without a name).
 	## Creates synthetic function entries with "<lambda>" names so they appear
@@ -422,7 +414,7 @@ func _detect_inline_lambdas(tokens: Array, line_num: int, func_stack: Array,
 				lambda_count += 1
 				var lambda_name := "<lambda:%d:%d>" % [line_num, lambda_count]
 				var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-				var info := GUTCheckFunctionInfo.new(lambda_name, line_num, cls_name, false)
+				var info := GUTCheckFunctionInfo.new(lambda_name, line_num, cls_name, false, indent)
 				# Lambda scopes end on the same line for single-line lambdas.
 				# Multi-line lambdas will get their end_line updated by
 				# _close_scopes_at_indent when a DEDENT is encountered.
@@ -432,13 +424,19 @@ func _detect_inline_lambdas(tokens: Array, line_num: int, func_stack: Array,
 
 func _close_scopes_at_indent(indent: int, func_stack: Array,
 		class_stack: Array, line_num: int) -> void:
+	# Pop functions whose body we've exited. A function defined at indent N
+	# has its body at indent N+1, so we close it when indent drops to N or below.
 	while func_stack.size() > 0 and func_stack.back().end_line == -1:
-		func_stack.back().end_line = line_num - 1
-		func_stack.pop_back()
-		break
+		if indent <= func_stack.back().indent:
+			func_stack.back().end_line = line_num - 1
+			func_stack.pop_back()
+		else:
+			break
 
-	if func_stack.size() == 0:
-		while class_stack.size() > 0 and class_stack.back().end_line == -1:
+	# Pop classes whose body we've exited, same logic.
+	while class_stack.size() > 0 and class_stack.back().end_line == -1:
+		if indent <= class_stack.back().indent:
 			class_stack.back().end_line = line_num - 1
 			class_stack.pop_back()
+		else:
 			break

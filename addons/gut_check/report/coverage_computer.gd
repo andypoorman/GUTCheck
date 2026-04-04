@@ -6,15 +6,15 @@ class_name GUTCheckCoverageComputer
 ## Compute line, branch, and function coverage for a single script.
 static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dictionary:
 	# Line coverage
-	var line_probes: Dictionary = _build_line_probes(script_map)
-	var branch_line_hits: Dictionary = _build_branch_line_hits(script_map, hits)
+	var line_probes: Dictionary = build_line_probes(script_map)
+	var branch_line_hits: Dictionary = build_branch_line_hits(script_map, hits)
 	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
 	var lines_found := exec_lines.size()
 	var lines_hit := 0
 	var uncovered_lines: Array[int] = []
 
 	for ln in exec_lines:
-		var hit_count := _get_line_hit_count(ln, line_probes, hits, branch_line_hits)
+		var hit_count := get_line_hit_count(ln, line_probes, hits, branch_line_hits)
 		if hit_count > 0:
 			lines_hit += 1
 		else:
@@ -47,7 +47,7 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	for func_info in script_map.functions:
 		for ln in exec_lines:
 			if ln >= func_info.start_line and (func_info.end_line == -1 or ln <= func_info.end_line):
-				var fhc := _get_line_hit_count(ln, line_probes, hits, branch_line_hits)
+				var fhc := get_line_hit_count(ln, line_probes, hits, branch_line_hits)
 				if fhc > 0:
 					funcs_hit += 1
 				break
@@ -176,9 +176,10 @@ static func is_excluded(path: String, patterns: Array) -> bool:
 	return false
 
 
-# -- Private helpers --
+# -- Shared helpers (used by exporters too) --
 
-static func _build_line_probes(script_map) -> Dictionary:
+## Build a mapping of line_number -> [probe_ids] for a script map.
+static func build_line_probes(script_map) -> Dictionary:
 	var line_probes: Dictionary = {}
 	for probe_id: int in script_map.probe_to_line:
 		var ln: int = script_map.probe_to_line[probe_id]
@@ -188,7 +189,8 @@ static func _build_line_probes(script_map) -> Dictionary:
 	return line_probes
 
 
-static func _get_line_hit_count(line_num: int, line_probes: Dictionary, hits: PackedInt32Array, branch_line_hits: Dictionary = {}) -> int:
+## Get the hit count for a line, falling back to branch probe hits.
+static func get_line_hit_count(line_num: int, line_probes: Dictionary, hits: PackedInt32Array, branch_line_hits: Dictionary = {}) -> int:
 	var hit_count := 0
 	if line_probes.has(line_num):
 		var probes: Array = line_probes[line_num]
@@ -206,7 +208,7 @@ static func _get_line_hit_count(line_num: int, line_probes: Dictionary, hits: Pa
 ## Build a mapping of line_number -> total branch hits for that line.
 ## Used so branch lines (if/elif/while/for) count as covered even though
 ## the injector fires br2() instead of hit().
-static func _build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
+static func build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
 	var result: Dictionary = {}
 	for b in script_map.branches:
 		var h := 0
@@ -215,6 +217,20 @@ static func _build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dicti
 		if h > 0:
 			result[b.line_number] = result.get(b.line_number, 0) + h
 	return result
+
+
+## Derive hit count for a compound branch (else, match pattern) by looking
+## at the first executable line in its body.
+static func derive_body_hits(branch_line: int, script_map, hits: PackedInt32Array, line_probes: Dictionary) -> int:
+	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+	for ln in exec_lines:
+		if ln > branch_line:
+			if line_probes.has(ln):
+				var pid: int = line_probes[ln][0]
+				if pid < hits.size():
+					return hits[pid]
+			break
+	return 0
 
 
 static func _pct(hit: int, total: int, default_val: float = 0.0) -> float:

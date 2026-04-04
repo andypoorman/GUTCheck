@@ -100,22 +100,6 @@ static func instrument_semicolon_statements(content: String, sid: int, first_pid
 	return "; ".join(parts)
 
 
-## Wrap an if/elif/while condition with br() for line coverage.
-static func wrap_condition(content: String, keyword: String, sid: int, pid: int) -> String:
-	var kw_end := keyword.length()
-	while kw_end < content.length() and content[kw_end] == " ":
-		kw_end += 1
-
-	var colon_pos := find_block_colon(content)
-	if colon_pos == -1:
-		return content
-
-	var condition := content.substr(kw_end, colon_pos - kw_end).strip_edges()
-	var after_colon := content.substr(colon_pos + 1)
-
-	return "%s GUTCheckCollector.br(%d,%d,%s):%s" % [keyword, sid, pid, condition, after_colon]
-
-
 ## Wrap a condition with br2() for branch coverage.
 static func wrap_condition_br2(content: String, keyword: String, sid: int, pid: int, branch_probes: Array) -> String:
 	var kw_end := keyword.length()
@@ -169,25 +153,6 @@ static func wrap_for_br2(content: String, sid: int, pid: int, branch_probes: Arr
 
 	if true_pid >= 0 and false_pid >= 0:
 		return "%s in GUTCheckCollector.hit_br2rng(%d,%d,%d,%d,%s):%s" % [before_in, sid, pid, true_pid, false_pid, iterable, after_colon]
-
-	return "%s in GUTCheckCollector.rng(%d,%d,%s):%s" % [before_in, sid, pid, iterable, after_colon]
-
-
-## Wrap a for-loop iterable with rng() for line coverage.
-static func wrap_for(content: String, sid: int, pid: int) -> String:
-	var in_pos := find_for_in(content)
-	if in_pos == -1:
-		return content
-
-	var before_in := content.substr(0, in_pos)
-	var after_in_start := in_pos + 4
-
-	var colon_pos := find_block_colon(content)
-	if colon_pos == -1:
-		return content
-
-	var iterable := content.substr(after_in_start, colon_pos - after_in_start).strip_edges()
-	var after_colon := content.substr(colon_pos + 1)
 
 	return "%s in GUTCheckCollector.rng(%d,%d,%s):%s" % [before_in, sid, pid, iterable, after_colon]
 

@@ -169,8 +169,6 @@ static func clear() -> void:
 	_enabled = false
 
 
-
-
 ## Lock the collector so clear() only resets hit counters instead of
 ## removing registrations. Used for self-coverage.
 static func lock() -> void:
@@ -200,8 +198,6 @@ static func restore_snapshot(snap: Dictionary) -> void:
 	_script_maps = snap.maps.duplicate(true)
 	_enabled = snap.enabled
 	_locked = snap.locked
-
-
 
 
 static func get_hits() -> Dictionary:
