@@ -134,15 +134,17 @@ func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt
 		name = "%s.%s" % [func_info.cls_name, func_info.name]
 
 	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+	var line_probes := GUTCheckCoverageComputer.build_line_probes(script_map)
+	var branch_line_hits := GUTCheckCoverageComputer.build_branch_line_hits(script_map, hits)
 
 	xml.append('            <method name="%s" signature="" line-rate="0" branch-rate="0" complexity="0">' % _escape_xml(name))
 	xml.append('              <lines>')
 
-	var line_probes := GUTCheckCoverageComputer.build_line_probes(script_map)
 	for line_num in exec_lines:
 		if line_num >= func_info.start_line and (func_info.end_line == -1 or line_num <= func_info.end_line):
-			var hit_count := GUTCheckCoverageComputer.get_line_hit_count(line_num, line_probes, hits)
-			var branch_data := _get_branch_data_for_line(line_num, script_map, hits)
+			var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
+				line_num, line_probes, hits, branch_line_hits)
+			var branch_data := _get_branch_data_for_line(line_num, script_map, hits, line_probes)
 			_emit_line_element(xml, line_num, hit_count, branch_data, "                ")
 
 	xml.append('              </lines>')
@@ -151,11 +153,13 @@ func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt
 
 func _emit_lines(xml: PackedStringArray, script_map, hits: PackedInt32Array) -> void:
 	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
+	var branch_line_hits := GUTCheckCoverageComputer.build_branch_line_hits(script_map, hits)
 	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
 
 	for line_num in exec_lines:
-		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(line_num, line_probes, hits)
-		var branch_data := _get_branch_data_for_line(line_num, script_map, hits)
+		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
+			line_num, line_probes, hits, branch_line_hits)
+		var branch_data := _get_branch_data_for_line(line_num, script_map, hits, line_probes)
 		_emit_line_element(xml, line_num, hit_count, branch_data, "            ")
 
 
@@ -177,28 +181,18 @@ func _emit_line_element(xml: PackedStringArray, line_num: int, hit_count: int, b
 		xml.append('%s</line>' % indent)
 
 
-func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array) -> Dictionary:
+func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array, line_probes: Dictionary) -> Dictionary:
 	var line_branches: Array = script_map.get_branches_for_line(line_num)
 	if line_branches.size() == 0:
 		return {}
 
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
 	var total := line_branches.size()
 	var covered := 0
 	var conditions: Array = []
 
 	for b in line_branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
-
-		# For compound branches (else, match pattern), derive from body
-		var line_info = script_map.lines.get(b.line_number)
-		if line_info != null and h == 0:
-			if line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN:
-				h = GUTCheckCoverageComputer.derive_body_hits(
-					b.line_number, script_map, hits, line_probes)
+		var h := GUTCheckCoverageComputer.get_branch_hit_count(
+			b, script_map, hits, line_probes)
 
 		if h > 0:
 			covered += 1
@@ -209,26 +203,18 @@ func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array
 
 func _compute_script_stats(script_map, hits: PackedInt32Array) -> Dictionary:
 	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
+	var branch_line_hits := GUTCheckCoverageComputer.build_branch_line_hits(script_map, hits)
 	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
 	var lines_valid: int = exec_lines.size()
 	var lines_covered := 0
 	for ln in exec_lines:
-		if GUTCheckCoverageComputer.get_line_hit_count(ln, line_probes, hits) > 0:
+		if GUTCheckCoverageComputer.get_line_hit_count(ln, line_probes, hits, branch_line_hits) > 0:
 			lines_covered += 1
 
 	var branches_valid: int = script_map.branches.size()
 	var branches_covered := 0
 	for b in script_map.branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
-		if h == 0:
-			var line_info = script_map.lines.get(b.line_number)
-			if line_info != null and (line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN):
-				h = GUTCheckCoverageComputer.derive_body_hits(
-					b.line_number, script_map, hits, line_probes)
-		if h > 0:
+		if GUTCheckCoverageComputer.get_branch_hit_count(b, script_map, hits, line_probes) > 0:
 			branches_covered += 1
 
 	return {

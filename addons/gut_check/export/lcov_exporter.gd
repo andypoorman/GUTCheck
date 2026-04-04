@@ -91,19 +91,8 @@ func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt3
 	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
 
 	for branch_info in script_map.branches:
-		var hit_count := 0
-		if branch_info.probe_id < hits.size():
-			hit_count = hits[branch_info.probe_id]
-
-		# For match patterns and else branches, the probe is allocated but
-		# not directly recorded (compound statements can't have code injected).
-		# Derive hits from the first executable body line after the branch.
-		var line_info = script_map.lines.get(branch_info.line_number)
-		if line_info != null and hit_count == 0:
-			if line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE:
-				hit_count = GUTCheckCoverageComputer.derive_body_hits(
-					branch_info.line_number, script_map, hits, line_probes)
+		var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
+			branch_info, script_map, hits, line_probes)
 
 		lines.append("BRDA:%d,%d,%d,%d" % [
 			branch_info.line_number, branch_info.block_id,

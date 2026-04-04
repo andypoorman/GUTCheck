@@ -24,21 +24,7 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var branches_found: int = script_map.branches.size()
 	var branches_hit := 0
 	for b in script_map.branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
-		if h == 0:
-			var line_info = script_map.lines.get(b.line_number)
-			if line_info != null and (line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN):
-				for body_ln in exec_lines:
-					if body_ln > b.line_number:
-						if line_probes.has(body_ln):
-							var pid: int = line_probes[body_ln][0]
-							if pid < hits.size():
-								h = hits[pid]
-						break
-		if h > 0:
+		if get_branch_hit_count(b, script_map, hits, line_probes) > 0:
 			branches_hit += 1
 
 	# Function coverage
@@ -211,12 +197,32 @@ static func get_line_hit_count(line_num: int, line_probes: Dictionary, hits: Pac
 static func build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
 	var result: Dictionary = {}
 	for b in script_map.branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
+		var h := get_branch_hit_count(b, script_map, hits)
 		if h > 0:
 			result[b.line_number] = result.get(b.line_number, 0) + h
 	return result
+
+
+## Get the hit count for a branch probe, falling back to its body line
+## for compound branches that cannot be instrumented directly.
+static func get_branch_hit_count(branch_info, script_map, hits: PackedInt32Array, line_probes: Dictionary = {}) -> int:
+	var hit_count := 0
+	if branch_info.probe_id < hits.size():
+		hit_count = hits[branch_info.probe_id]
+	if hit_count > 0:
+		return hit_count
+
+	var line_info = script_map.lines.get(branch_info.line_number)
+	if line_info == null:
+		return 0
+	if line_info.type != GUTCheckScriptMap.LineType.BRANCH_ELSE \
+			and line_info.type != GUTCheckScriptMap.LineType.BRANCH_PATTERN:
+		return 0
+
+	var probes := line_probes
+	if probes.is_empty():
+		probes = build_line_probes(script_map)
+	return derive_body_hits(branch_info.line_number, script_map, hits, probes)
 
 
 ## Derive hit count for a compound branch (else, match pattern) by looking
