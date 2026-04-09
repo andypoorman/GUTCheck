@@ -83,6 +83,7 @@ func assign_probes() -> void:
 ## condition gets 2 probes (true/false). Match patterns get 1 probe each.
 func assign_branch_probes() -> void:
 	_mark_caches_dirty()
+	branches.clear()
 	var next_block_id := 0
 	var sorted_keys: Array[int] = []
 	for k: int in lines:

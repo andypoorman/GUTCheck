@@ -766,6 +766,7 @@ func test_token_to_string():
 	var s = t._to_string()
 	assert_true(s.contains("IDENTIFIER"), "to_string should contain type name")
 	assert_true(s.contains("foo"), "to_string should contain value")
+	assert_true(s.contains("L1"), "to_string should contain line number")
 
 
 func test_token_is_keyword():
