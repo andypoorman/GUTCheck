@@ -54,36 +54,15 @@ static func instrument_line(line: String, line_type: GUTCheckScriptMap.LineType,
 static func instrument_semicolon_statements(content: String, sid: int, first_pid: int) -> String:
 	var statements: Array[String] = []
 	var current := ""
-	var depth := 0
-	var in_string := false
-	var string_char := ""
+	var scan_state := _new_scan_state()
 
 	for i in range(content.length()):
-		var c := content[i]
-
-		if in_string:
-			current += c
-			if c == "\\" and not in_string:
-				if i + 1 < content.length():
-					current += content[i + 1]
-				continue
-			if c == string_char:
-				in_string = false
-			continue
-
-		if c == '"' or c == "'":
-			in_string = true
-			string_char = c
+		var c: String = content[i]
+		if _scan_char(c, scan_state, i, content.length()):
 			current += c
 			continue
 
-		if c == "(" or c == "[" or c == "{":
-			depth += 1
-			current += c
-		elif c == ")" or c == "]" or c == "}":
-			depth = maxi(0, depth - 1)
-			current += c
-		elif c == ";" and depth == 0:
+		if c == ";" and scan_state.depth == 0:
 			statements.append(current.strip_edges())
 			current = ""
 		else:
@@ -102,24 +81,15 @@ static func instrument_semicolon_statements(content: String, sid: int, first_pid
 
 ## Wrap a condition with br2() for branch coverage.
 static func wrap_condition_br2(content: String, keyword: String, sid: int, pid: int, branch_probes: Array) -> String:
-	var kw_end := keyword.length()
-	while kw_end < content.length() and content[kw_end] == " ":
-		kw_end += 1
-
-	var colon_pos := find_block_colon(content)
-	if colon_pos == -1:
+	var block_parts := _split_block_content(content, keyword.length())
+	if block_parts.is_empty():
 		return content
 
-	var condition := content.substr(kw_end, colon_pos - kw_end).strip_edges()
-	var after_colon := content.substr(colon_pos + 1)
-
-	var true_pid := -1
-	var false_pid := -1
-	for bp in branch_probes:
-		if bp.is_true_branch:
-			true_pid = bp.probe_id
-		else:
-			false_pid = bp.probe_id
+	var condition: String = block_parts.condition
+	var after_colon: String = block_parts.after_colon
+	var probe_ids := _get_true_false_probe_ids(branch_probes)
+	var true_pid: int = probe_ids.true_pid
+	var false_pid: int = probe_ids.false_pid
 
 	if true_pid >= 0 and false_pid >= 0:
 		return "%s GUTCheckCollector.hit_br2(%d,%d,%d,%d,%s):%s" % [keyword, sid, pid, true_pid, false_pid, condition, after_colon]
@@ -134,22 +104,15 @@ static func wrap_for_br2(content: String, sid: int, pid: int, branch_probes: Arr
 		return content
 
 	var before_in := content.substr(0, in_pos)
-	var after_in_start := in_pos + 4
-
-	var colon_pos := find_block_colon(content)
-	if colon_pos == -1:
+	var block_parts := _split_block_content(content, in_pos + 4)
+	if block_parts.is_empty():
 		return content
 
-	var iterable := content.substr(after_in_start, colon_pos - after_in_start).strip_edges()
-	var after_colon := content.substr(colon_pos + 1)
-
-	var true_pid := -1
-	var false_pid := -1
-	for bp in branch_probes:
-		if bp.is_true_branch:
-			true_pid = bp.probe_id
-		else:
-			false_pid = bp.probe_id
+	var iterable: String = block_parts.condition
+	var after_colon: String = block_parts.after_colon
+	var probe_ids := _get_true_false_probe_ids(branch_probes)
+	var true_pid: int = probe_ids.true_pid
+	var false_pid: int = probe_ids.false_pid
 
 	if true_pid >= 0 and false_pid >= 0:
 		return "%s in GUTCheckCollector.hit_br2rng(%d,%d,%d,%d,%s):%s" % [before_in, sid, pid, true_pid, false_pid, iterable, after_colon]
@@ -159,16 +122,12 @@ static func wrap_for_br2(content: String, sid: int, pid: int, branch_probes: Arr
 
 ## Wrap a match expression with br().
 static func wrap_match(content: String, sid: int, pid: int) -> String:
-	var kw_end := 5
-	while kw_end < content.length() and content[kw_end] == " ":
-		kw_end += 1
-
-	var colon_pos := find_block_colon(content)
-	if colon_pos == -1:
+	var block_parts := _split_block_content(content, 5)
+	if block_parts.is_empty():
 		return content
 
-	var expr := content.substr(kw_end, colon_pos - kw_end).strip_edges()
-	var after_colon := content.substr(colon_pos + 1)
+	var expr: String = block_parts.condition
+	var after_colon: String = block_parts.after_colon
 
 	return "match GUTCheckCollector.br(%d,%d,%s):%s" % [sid, pid, expr, after_colon]
 
@@ -193,14 +152,9 @@ static func wrap_ternary(content: String, sid: int, pid: int, branch_probes: Arr
 			break
 		var if_pos: int = ternary_ifs[t_idx][0]
 		var else_pos: int = ternary_ifs[t_idx][1]
-
-		var true_pid := -1
-		var false_pid := -1
-		for bp in branch_probes:
-			if bp.is_true_branch and bp.block_id == branch_probes[bp_idx].block_id:
-				true_pid = bp.probe_id
-			elif not bp.is_true_branch and bp.block_id == branch_probes[bp_idx].block_id:
-				false_pid = bp.probe_id
+		var probe_ids := _get_probe_ids_for_block(branch_probes, branch_probes[bp_idx].block_id)
+		var true_pid: int = probe_ids.true_pid
+		var false_pid: int = probe_ids.false_pid
 		bp_idx -= 2
 
 		if true_pid < 0 or false_pid < 0:
@@ -226,36 +180,17 @@ static func find_ternary_if_positions(content: String) -> Array:
 	var results: Array = []
 	var pos := 0
 	var length := content.length()
-	var depth := 0
-	var in_string := false
-	var string_char := ""
+	var scan_state := _new_scan_state()
 
 	# First pass: find all " if " positions that are ternary (not at start of content)
 	var if_positions: Array[int] = []
 
 	while pos < length - 3:
-		var c := content[pos]
-
-		if in_string:
-			if c == "\\" and pos + 1 < length:
-				pos += 2
-				continue
-			if c == string_char:
-				in_string = false
+		var c: String = content[pos]
+		if _scan_char(c, scan_state, pos, length):
 			pos += 1
 			continue
-
-		if c == '"' or c == "'":
-			in_string = true
-			string_char = c
-			pos += 1
-			continue
-
-		if c == "(" or c == "[" or c == "{":
-			depth += 1
-		elif c == ")" or c == "]" or c == "}":
-			depth = maxi(0, depth - 1)
-		elif depth == 0 and content.substr(pos, 4) == " if ":
+		elif scan_state.depth == 0 and content.substr(pos, 4) == " if ":
 			# Ternary if — must not be at the very start (that would be a statement-level if)
 			if pos > 0:
 				if_positions.append(pos)
@@ -279,34 +214,15 @@ static func find_ternary_if_positions(content: String) -> Array:
 static func _find_matching_else(content: String, search_start: int) -> int:
 	var pos := search_start
 	var length := content.length()
-	var depth := 0
-	var in_string := false
-	var string_char := ""
+	var scan_state := _new_scan_state()
 	var nesting := 0  # ternary nesting depth
 
 	while pos < length - 5:
-		var c := content[pos]
-
-		if in_string:
-			if c == "\\" and pos + 1 < length:
-				pos += 2
-				continue
-			if c == string_char:
-				in_string = false
+		var c: String = content[pos]
+		if _scan_char(c, scan_state, pos, length):
 			pos += 1
 			continue
-
-		if c == '"' or c == "'":
-			in_string = true
-			string_char = c
-			pos += 1
-			continue
-
-		if c == "(" or c == "[" or c == "{":
-			depth += 1
-		elif c == ")" or c == "]" or c == "}":
-			depth = maxi(0, depth - 1)
-		elif depth == 0:
+		elif scan_state.depth == 0:
 			if content.substr(pos, 4) == " if ":
 				nesting += 1
 				pos += 4
@@ -330,34 +246,92 @@ static func inject_match_pattern_probe(content: String, _sid: int, _pid: int) ->
 
 ## Find the block-starting colon, respecting strings and nesting.
 static func find_block_colon(content: String) -> int:
-	var depth := 0
-	var in_string := false
-	var string_char := ""
+	var scan_state := _new_scan_state()
 	var last_colon := -1
 
 	for i in range(content.length()):
-		var c := content[i]
-
-		if in_string:
-			if c == "\\" and i + 1 < content.length():
-				continue
-			if c == string_char:
-				in_string = false
+		var c: String = content[i]
+		if _scan_char(c, scan_state, i, content.length()):
 			continue
-
-		if c == '"' or c == "'":
-			in_string = true
-			string_char = c
-			continue
-
-		if c == "(" or c == "[" or c == "{":
-			depth += 1
-		elif c == ")" or c == "]" or c == "}":
-			depth -= 1
-		elif c == ":" and depth == 0:
+		elif c == ":" and scan_state.depth == 0:
 			last_colon = i
 
 	return last_colon
+
+
+static func _split_block_content(content: String, start_pos: int) -> Dictionary:
+	var expr_start := start_pos
+	while expr_start < content.length() and content[expr_start] == " ":
+		expr_start += 1
+
+	var colon_pos := find_block_colon(content)
+	if colon_pos == -1:
+		return {}
+
+	return {
+		"condition": content.substr(expr_start, colon_pos - expr_start).strip_edges(),
+		"after_colon": content.substr(colon_pos + 1),
+	}
+
+
+static func _get_true_false_probe_ids(branch_probes: Array) -> Dictionary:
+	var true_pid := -1
+	var false_pid := -1
+	for bp in branch_probes:
+		if bp.is_true_branch:
+			true_pid = bp.probe_id
+		else:
+			false_pid = bp.probe_id
+	return {"true_pid": true_pid, "false_pid": false_pid}
+
+
+static func _get_probe_ids_for_block(branch_probes: Array, block_id: int) -> Dictionary:
+	var true_pid := -1
+	var false_pid := -1
+	for bp in branch_probes:
+		if bp.block_id != block_id:
+			continue
+		if bp.is_true_branch:
+			true_pid = bp.probe_id
+		else:
+			false_pid = bp.probe_id
+	return {"true_pid": true_pid, "false_pid": false_pid}
+
+
+static func _new_scan_state() -> Dictionary:
+	return {
+		"depth": 0,
+		"in_string": false,
+		"string_char": "",
+		"escape_next": false,
+	}
+
+
+static func _scan_char(c: String, state: Dictionary, pos: int, length: int) -> bool:
+	if state.in_string:
+		if state.escape_next:
+			state.escape_next = false
+			return true
+		if c == "\\" and pos + 1 < length:
+			state.escape_next = true
+			return true
+		if c == state.string_char:
+			state.in_string = false
+		return true
+
+	if c == '"' or c == "'":
+		state.in_string = true
+		state.string_char = c
+		state.escape_next = false
+		return true
+
+	if c == "(" or c == "[" or c == "{":
+		state.depth += 1
+		return false
+	if c == ")" or c == "]" or c == "}":
+		state.depth = maxi(0, state.depth - 1)
+		return false
+	return false
 
 
 ## Find the ` in ` keyword in a for-loop, respecting strings and nesting.

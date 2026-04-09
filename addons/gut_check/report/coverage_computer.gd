@@ -5,10 +5,10 @@ class_name GUTCheckCoverageComputer
 
 ## Compute line, branch, and function coverage for a single script.
 static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dictionary:
-	# Line coverage
-	var line_probes: Dictionary = build_line_probes(script_map)
-	var branch_line_hits: Dictionary = build_branch_line_hits(script_map, hits)
-	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+	var context := build_script_context(script_map, hits)
+	var line_probes: Dictionary = context.line_probes
+	var branch_line_hits: Dictionary = context.branch_line_hits
+	var exec_lines: Array[int] = context.exec_lines
 	var lines_found := exec_lines.size()
 	var lines_hit := 0
 	var uncovered_lines: Array[int] = []
@@ -24,21 +24,7 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var branches_found: int = script_map.branches.size()
 	var branches_hit := 0
 	for b in script_map.branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
-		if h == 0:
-			var line_info = script_map.lines.get(b.line_number)
-			if line_info != null and (line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN):
-				for body_ln in exec_lines:
-					if body_ln > b.line_number:
-						if line_probes.has(body_ln):
-							var pid: int = line_probes[body_ln][0]
-							if pid < hits.size():
-								h = hits[pid]
-						break
-		if h > 0:
+		if get_branch_hit_count(b, script_map, hits, context) > 0:
 			branches_hit += 1
 
 	# Function coverage
@@ -178,6 +164,18 @@ static func is_excluded(path: String, patterns: Array) -> bool:
 
 # -- Shared helpers (used by exporters too) --
 
+static func build_script_context(script_map, hits: PackedInt32Array) -> Dictionary:
+	var line_probes: Dictionary = build_line_probes(script_map)
+	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+	var body_probe_ids: Dictionary = build_body_probe_ids(script_map, line_probes, exec_lines)
+	return {
+		"script_map": script_map,
+		"line_probes": line_probes,
+		"exec_lines": exec_lines,
+		"body_probe_ids": body_probe_ids,
+		"branch_line_hits": build_branch_line_hits(script_map, hits, body_probe_ids),
+	}
+
 ## Build a mapping of line_number -> [probe_ids] for a script map.
 static func build_line_probes(script_map) -> Dictionary:
 	var line_probes: Dictionary = {}
@@ -208,29 +206,70 @@ static func get_line_hit_count(line_num: int, line_probes: Dictionary, hits: Pac
 ## Build a mapping of line_number -> total branch hits for that line.
 ## Used so branch lines (if/elif/while/for) count as covered even though
 ## the injector fires br2() instead of hit().
-static func build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
+static func build_branch_line_hits(script_map, hits: PackedInt32Array, body_probe_ids: Dictionary = {}) -> Dictionary:
 	var result: Dictionary = {}
 	for b in script_map.branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
+		var h := get_branch_hit_count(b, script_map, hits, {"body_probe_ids": body_probe_ids})
 		if h > 0:
 			result[b.line_number] = result.get(b.line_number, 0) + h
 	return result
 
 
+## Get the hit count for a branch probe, falling back to its body line
+## for compound branches that cannot be instrumented directly.
+static func get_branch_hit_count(branch_info, script_map, hits: PackedInt32Array, context: Dictionary = {}) -> int:
+	var hit_count := 0
+	if branch_info.probe_id < hits.size():
+		hit_count = hits[branch_info.probe_id]
+	if hit_count > 0:
+		return hit_count
+
+	var line_info = script_map.lines.get(branch_info.line_number)
+	if line_info == null:
+		return 0
+	if line_info.type != GUTCheckScriptMap.LineType.BRANCH_ELSE \
+			and line_info.type != GUTCheckScriptMap.LineType.BRANCH_PATTERN:
+		return 0
+
+	var body_probe_ids: Dictionary = context.get("body_probe_ids", {})
+	return derive_body_hits(branch_info.line_number, script_map, hits, body_probe_ids)
+
+
 ## Derive hit count for a compound branch (else, match pattern) by looking
 ## at the first executable line in its body.
-static func derive_body_hits(branch_line: int, script_map, hits: PackedInt32Array, line_probes: Dictionary) -> int:
-	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
-	for ln in exec_lines:
-		if ln > branch_line:
-			if line_probes.has(ln):
-				var pid: int = line_probes[ln][0]
-				if pid < hits.size():
-					return hits[pid]
-			break
+static func derive_body_hits(branch_line: int, _script_map, hits: PackedInt32Array, body_probe_ids: Dictionary) -> int:
+	var pid: int = body_probe_ids.get(branch_line, -1)
+	if pid >= 0 and pid < hits.size():
+		return hits[pid]
 	return 0
+
+
+static func build_body_probe_ids(script_map, line_probes: Dictionary, exec_lines: Array[int]) -> Dictionary:
+	var result: Dictionary = {}
+	var derivable_lines: Array[int] = []
+
+	for branch_info in script_map.branches:
+		var line_info = script_map.lines.get(branch_info.line_number)
+		if line_info == null:
+			continue
+		if line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
+				or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN:
+			if not result.has(branch_info.line_number):
+				derivable_lines.append(branch_info.line_number)
+				result[branch_info.line_number] = -1
+
+	derivable_lines.sort()
+	var exec_idx := 0
+	for branch_line in derivable_lines:
+		while exec_idx < exec_lines.size() and exec_lines[exec_idx] <= branch_line:
+			exec_idx += 1
+		if exec_idx >= exec_lines.size():
+			break
+		var body_line: int = exec_lines[exec_idx]
+		if line_probes.has(body_line):
+			result[branch_line] = line_probes[body_line][0]
+
+	return result
 
 
 static func _pct(hit: int, total: int, default_val: float = 0.0) -> float:

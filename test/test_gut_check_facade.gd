@@ -256,6 +256,21 @@ func test_discover_source_files_multiple_source_dirs():
 	assert_true(has_collector, "Should find files from collector dir")
 
 
+func test_discover_source_files_deduplicates_overlapping_source_dirs():
+	var gc := GUTCheck.new()
+	gc.load_config()
+	gc._config["source_dirs"] = ["res://test/", "res://test/resources/"]
+	gc._config["exclude_patterns"] = []
+
+	var files := gc._discover_source_files()
+	var sample_count := 0
+	for f in files:
+		if f == "res://test/resources/sample_script.gd":
+			sample_count += 1
+
+	assert_eq(sample_count, 1, "Overlapping source_dirs should not duplicate files")
+
+
 # ===========================================================================
 # is_coverage_passing()
 # ===========================================================================

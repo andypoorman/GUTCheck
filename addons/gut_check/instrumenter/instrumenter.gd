@@ -10,10 +10,10 @@ var _classifier = GUTCheckLineClassifier.new()
 ## Instrument a GDScript source string. Returns a GUTCheckInstrumentResult
 ## with the modified source and metadata.
 func instrument(source: String, script_id: int, script_path: String = "") -> GUTCheckInstrumentResult:
-	var tokens = _tokenizer.tokenize(source)
-	var script_map = _classifier.classify(tokens, script_path)
+	var tokens: Array = _tokenizer.tokenize(source)
+	var script_map: GUTCheckScriptMap = _classifier.classify(tokens, script_path)
 
-	var lines := source.split("\n")
+	var lines: PackedStringArray = source.split("\n")
 	var result_lines: PackedStringArray = []
 	result_lines.resize(lines.size())
 
@@ -33,20 +33,20 @@ func instrument(source: String, script_id: int, script_path: String = "") -> GUT
 		line_to_branches[ln].append(branch_info)
 
 	for i in range(lines.size()):
-		var line_num := i + 1
-		var line := lines[i]
+		var line_num: int = i + 1
+		var line: String = lines[i]
 
 		if not line_to_first_probe.has(line_num):
 			result_lines[i] = line
 			continue
 
 		var first_probe: int = line_to_first_probe[line_num]
-		var line_info = script_map.lines.get(line_num)
+		var line_info: GUTCheckLineInfo = script_map.lines.get(line_num)
 		if line_info == null:
 			result_lines[i] = line
 			continue
-
-		var indent = GUTCheckProbeInjector.get_indent(line)
+	 
+		var indent: String = GUTCheckProbeInjector.get_indent(line)
 		if indent.length() == 0:
 			result_lines[i] = line
 			continue

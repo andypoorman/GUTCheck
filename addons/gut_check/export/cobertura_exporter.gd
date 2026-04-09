@@ -30,11 +30,20 @@ func generate_cobertura(source_root: String = "") -> String:
 		var script_map = all_maps.get(sid)
 		if script_map == null:
 			continue
+		var context := GUTCheckCoverageComputer.build_script_context(script_map, hits)
+		var stats := _compute_script_stats(hits, context)
 
 		var dir := path.get_base_dir()
 		if not packages.has(dir):
 			packages[dir] = []
-		packages[dir].append({"sid": sid, "path": path, "hits": hits, "map": script_map})
+		packages[dir].append({
+			"sid": sid,
+			"path": path,
+			"hits": hits,
+			"map": script_map,
+			"context": context,
+			"stats": stats,
+		})
 
 	# Build XML
 	var xml := PackedStringArray()
@@ -44,7 +53,7 @@ func generate_cobertura(source_root: String = "") -> String:
 	# First pass: compute totals
 	for dir: String in packages:
 		for entry in packages[dir]:
-			var stats := _compute_script_stats(entry.map, entry.hits)
+			var stats: Dictionary = entry.stats
 			total_lines_valid += stats.lines_valid
 			total_lines_covered += stats.lines_covered
 			total_branches_valid += stats.branches_valid
@@ -76,7 +85,7 @@ func generate_cobertura(source_root: String = "") -> String:
 		var pkg_branches_covered := 0
 
 		for entry in entries:
-			var stats := _compute_script_stats(entry.map, entry.hits)
+			var stats: Dictionary = entry.stats
 			pkg_lines_valid += stats.lines_valid
 			pkg_lines_covered += stats.lines_covered
 			pkg_branches_valid += stats.branches_valid
@@ -93,7 +102,7 @@ func generate_cobertura(source_root: String = "") -> String:
 		xml.append('      <classes>')
 
 		for entry in entries:
-			_emit_class(xml, entry.path, entry.map, entry.hits)
+			_emit_class(xml, entry.path, entry.map, entry.hits, entry.context, entry.stats)
 
 		xml.append('      </classes>')
 		xml.append('    </package>')
@@ -104,8 +113,7 @@ func generate_cobertura(source_root: String = "") -> String:
 	return "\n".join(xml) + "\n"
 
 
-func _emit_class(xml: PackedStringArray, path: String, script_map, hits: PackedInt32Array) -> void:
-	var stats := _compute_script_stats(script_map, hits)
+func _emit_class(xml: PackedStringArray, path: String, script_map, hits: PackedInt32Array, context: Dictionary, stats: Dictionary) -> void:
 	var class_name_str := path.get_file().get_basename()
 	var filename := _to_relative_path(path)
 
@@ -117,45 +125,49 @@ func _emit_class(xml: PackedStringArray, path: String, script_map, hits: PackedI
 	# Methods
 	xml.append('          <methods>')
 	for func_info in script_map.functions:
-		_emit_method(xml, func_info, script_map, hits)
+		_emit_method(xml, func_info, script_map, hits, context)
 	xml.append('          </methods>')
 
 	# All lines
 	xml.append('          <lines>')
-	_emit_lines(xml, script_map, hits)
+	_emit_lines(xml, script_map, hits, context)
 	xml.append('          </lines>')
 
 	xml.append('        </class>')
 
 
-func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt32Array) -> void:
+func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
 	var name: String = func_info.name
 	if func_info.cls_name != "":
 		name = "%s.%s" % [func_info.cls_name, func_info.name]
 
-	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+	var exec_lines: Array[int] = context.exec_lines
+	var line_probes: Dictionary = context.line_probes
+	var branch_line_hits: Dictionary = context.branch_line_hits
 
 	xml.append('            <method name="%s" signature="" line-rate="0" branch-rate="0" complexity="0">' % _escape_xml(name))
 	xml.append('              <lines>')
 
-	var line_probes := GUTCheckCoverageComputer.build_line_probes(script_map)
 	for line_num in exec_lines:
 		if line_num >= func_info.start_line and (func_info.end_line == -1 or line_num <= func_info.end_line):
-			var hit_count := GUTCheckCoverageComputer.get_line_hit_count(line_num, line_probes, hits)
-			var branch_data := _get_branch_data_for_line(line_num, script_map, hits)
+			var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
+				line_num, line_probes, hits, branch_line_hits)
+			var branch_data := _get_branch_data_for_line(line_num, script_map, hits, context)
 			_emit_line_element(xml, line_num, hit_count, branch_data, "                ")
 
 	xml.append('              </lines>')
 	xml.append('            </method>')
 
 
-func _emit_lines(xml: PackedStringArray, script_map, hits: PackedInt32Array) -> void:
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
-	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+func _emit_lines(xml: PackedStringArray, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
+	var line_probes: Dictionary = context.line_probes
+	var branch_line_hits: Dictionary = context.branch_line_hits
+	var exec_lines: Array[int] = context.exec_lines
 
 	for line_num in exec_lines:
-		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(line_num, line_probes, hits)
-		var branch_data := _get_branch_data_for_line(line_num, script_map, hits)
+		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
+			line_num, line_probes, hits, branch_line_hits)
+		var branch_data := _get_branch_data_for_line(line_num, script_map, hits, context)
 		_emit_line_element(xml, line_num, hit_count, branch_data, "            ")
 
 
@@ -177,28 +189,18 @@ func _emit_line_element(xml: PackedStringArray, line_num: int, hit_count: int, b
 		xml.append('%s</line>' % indent)
 
 
-func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array) -> Dictionary:
+func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array, context: Dictionary) -> Dictionary:
 	var line_branches: Array = script_map.get_branches_for_line(line_num)
 	if line_branches.size() == 0:
 		return {}
 
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
 	var total := line_branches.size()
 	var covered := 0
 	var conditions: Array = []
 
 	for b in line_branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
-
-		# For compound branches (else, match pattern), derive from body
-		var line_info = script_map.lines.get(b.line_number)
-		if line_info != null and h == 0:
-			if line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN:
-				h = GUTCheckCoverageComputer.derive_body_hits(
-					b.line_number, script_map, hits, line_probes)
+		var h := GUTCheckCoverageComputer.get_branch_hit_count(
+			b, script_map, hits, context)
 
 		if h > 0:
 			covered += 1
@@ -207,28 +209,21 @@ func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array
 	return {"total": total, "covered": covered, "conditions": conditions}
 
 
-func _compute_script_stats(script_map, hits: PackedInt32Array) -> Dictionary:
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
-	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
+func _compute_script_stats(hits: PackedInt32Array, context: Dictionary) -> Dictionary:
+	var line_probes: Dictionary = context.line_probes
+	var branch_line_hits: Dictionary = context.branch_line_hits
+	var exec_lines: Array[int] = context.exec_lines
 	var lines_valid: int = exec_lines.size()
 	var lines_covered := 0
 	for ln in exec_lines:
-		if GUTCheckCoverageComputer.get_line_hit_count(ln, line_probes, hits) > 0:
+		if GUTCheckCoverageComputer.get_line_hit_count(ln, line_probes, hits, branch_line_hits) > 0:
 			lines_covered += 1
 
+	var script_map = context.get("script_map")
 	var branches_valid: int = script_map.branches.size()
 	var branches_covered := 0
 	for b in script_map.branches:
-		var h := 0
-		if b.probe_id < hits.size():
-			h = hits[b.probe_id]
-		if h == 0:
-			var line_info = script_map.lines.get(b.line_number)
-			if line_info != null and (line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN):
-				h = GUTCheckCoverageComputer.derive_body_hits(
-					b.line_number, script_map, hits, line_probes)
-		if h > 0:
+		if GUTCheckCoverageComputer.get_branch_hit_count(b, script_map, hits, context) > 0:
 			branches_covered += 1
 
 	return {

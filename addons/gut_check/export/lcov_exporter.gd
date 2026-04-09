@@ -42,25 +42,26 @@ func _generate_lcov(test_name: String) -> String:
 		var script_map = all_maps.get(sid)
 		if script_map == null:
 			continue
+		var context := GUTCheckCoverageComputer.build_script_context(script_map, hits)
 
 		lines.append("TN:%s" % test_name)
 		lines.append("SF:%s" % _to_absolute_path(path))
 
 		# Function records
-		_emit_function_records(lines, script_map, hits)
+		_emit_function_records(lines, script_map, hits, context)
 
 		# Branch records
-		_emit_branch_records(lines, script_map, hits)
+		_emit_branch_records(lines, script_map, hits, context)
 
 		# Line records
-		_emit_line_records(lines, script_map, hits)
+		_emit_line_records(lines, hits, context)
 
 		lines.append("end_of_record")
 
 	return "\n".join(lines) + "\n" if lines.size() > 0 else ""
 
 
-func _emit_function_records(lines: PackedStringArray, script_map, hits: PackedInt32Array) -> void:
+func _emit_function_records(lines: PackedStringArray, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
 	var functions_found := 0
 	var functions_hit := 0
 
@@ -70,7 +71,7 @@ func _emit_function_records(lines: PackedStringArray, script_map, hits: PackedIn
 
 		# Calculate function hit count: a function is "hit" if any
 		# executable line within it was executed
-		var func_hit_count := _get_function_hit_count(func_info, script_map, hits)
+		var func_hit_count := _get_function_hit_count(func_info, hits, context)
 		lines.append("FNDA:%d,%s" % [func_hit_count, _qualified_func_name(func_info)])
 
 		functions_found += 1
@@ -81,29 +82,16 @@ func _emit_function_records(lines: PackedStringArray, script_map, hits: PackedIn
 	lines.append("FNH:%d" % functions_hit)
 
 
-func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt32Array) -> void:
+func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
 	if script_map.branches.size() == 0:
 		# No branch data — omit BRF/BRH entirely for backward compatibility
 		return
 
 	var branches_found := 0
 	var branches_hit := 0
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
-
 	for branch_info in script_map.branches:
-		var hit_count := 0
-		if branch_info.probe_id < hits.size():
-			hit_count = hits[branch_info.probe_id]
-
-		# For match patterns and else branches, the probe is allocated but
-		# not directly recorded (compound statements can't have code injected).
-		# Derive hits from the first executable body line after the branch.
-		var line_info = script_map.lines.get(branch_info.line_number)
-		if line_info != null and hit_count == 0:
-			if line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN \
-					or line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE:
-				hit_count = GUTCheckCoverageComputer.derive_body_hits(
-					branch_info.line_number, script_map, hits, line_probes)
+		var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
+			branch_info, script_map, hits, context)
 
 		lines.append("BRDA:%d,%d,%d,%d" % [
 			branch_info.line_number, branch_info.block_id,
@@ -116,13 +104,13 @@ func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt3
 	lines.append("BRH:%d" % branches_hit)
 
 
-func _emit_line_records(lines: PackedStringArray, script_map, hits: PackedInt32Array) -> void:
+func _emit_line_records(lines: PackedStringArray, hits: PackedInt32Array, context: Dictionary) -> void:
 	var lines_found := 0
 	var lines_hit := 0
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
-	var branch_line_hits: Dictionary = GUTCheckCoverageComputer.build_branch_line_hits(script_map, hits)
+	var line_probes: Dictionary = context.line_probes
+	var branch_line_hits: Dictionary = context.branch_line_hits
 
-	var executable_lines = script_map.get_executable_lines_sorted()
+	var executable_lines: Array[int] = context.exec_lines
 	for line_num in executable_lines:
 		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
 			line_num, line_probes, hits, branch_line_hits)
@@ -135,11 +123,11 @@ func _emit_line_records(lines: PackedStringArray, script_map, hits: PackedInt32A
 	lines.append("LH:%d" % lines_hit)
 
 
-func _get_function_hit_count(func_info, script_map, hits: PackedInt32Array) -> int:
+func _get_function_hit_count(func_info, hits: PackedInt32Array, context: Dictionary) -> int:
 	# A function's hit count is the hit count of its first executable line.
-	var line_probes: Dictionary = GUTCheckCoverageComputer.build_line_probes(script_map)
-	var branch_line_hits: Dictionary = GUTCheckCoverageComputer.build_branch_line_hits(script_map, hits)
-	var exec_lines = script_map.get_executable_lines_sorted()
+	var line_probes: Dictionary = context.line_probes
+	var branch_line_hits: Dictionary = context.branch_line_hits
+	var exec_lines: Array[int] = context.exec_lines
 	for line_num in exec_lines:
 		if line_num >= func_info.start_line and (func_info.end_line == -1 or line_num <= func_info.end_line):
 			return GUTCheckCoverageComputer.get_line_hit_count(

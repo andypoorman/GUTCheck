@@ -1448,6 +1448,11 @@ func test_semicolon_stmts_string_close_and_reopen():
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Should handle string close and reopen")
 
+func test_semicolon_stmts_escaped_quote_inside_string():
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a\\";b"; var t = 1', 0, 10)
+	var hit_count = result.count("GUTCheckCollector.hit(")
+	assert_eq(hit_count, 2, "Escaped quote inside string should not break semicolon splitting")
+
 func test_semicolon_stmts_regular_chars():
 	var result = GUTCheckProbeInjector.instrument_semicolon_statements("abc = xyz", 0, 10)
 	var hit_count = result.count("GUTCheckCollector.hit(")

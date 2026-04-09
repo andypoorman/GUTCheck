@@ -278,14 +278,15 @@ func _discover_source_files() -> Array[String]:
 	var source_dirs: Array = _config.get("source_dirs", DEFAULT_CONFIG.source_dirs)
 	var exclude_patterns: Array = _config.get("exclude_patterns", DEFAULT_CONFIG.exclude_patterns)
 	var files: Array[String] = []
+	var seen: Dictionary = {}
 
 	for dir_path: String in source_dirs:
-		_scan_directory(dir_path, files, exclude_patterns)
+		_scan_directory(dir_path, files, exclude_patterns, seen)
 
 	return files
 
 
-func _scan_directory(dir_path: String, files: Array[String], exclude_patterns: Array) -> void:
+func _scan_directory(dir_path: String, files: Array[String], exclude_patterns: Array, seen: Dictionary) -> void:
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
 		push_warning("GUTCheck: Could not open directory: %s" % dir_path)
@@ -303,9 +304,10 @@ func _scan_directory(dir_path: String, files: Array[String], exclude_patterns: A
 
 		if dir.current_is_dir():
 			if not file_name.begins_with("."):
-				_scan_directory(full_path, files, exclude_patterns)
+				_scan_directory(full_path, files, exclude_patterns, seen)
 		elif file_name.ends_with(".gd"):
-			if not _is_excluded(full_path, exclude_patterns):
+			if not _is_excluded(full_path, exclude_patterns) and not seen.has(full_path):
+				seen[full_path] = true
 				files.append(full_path)
 
 		file_name = dir.get_next()

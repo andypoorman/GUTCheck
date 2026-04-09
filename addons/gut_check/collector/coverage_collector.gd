@@ -89,20 +89,7 @@ static func rng(script_id: int, probe_id: int, value: Variant) -> Variant:
 static func hit_br2rng(script_id: int, line_pid: int, true_pid: int, false_pid: int, value: Variant) -> Variant:
 	if _enabled:
 		_hits[script_id][line_pid] += 1
-		var non_empty := false
-		if value is Array or value is PackedByteArray or value is PackedInt32Array \
-				or value is PackedInt64Array or value is PackedFloat32Array \
-				or value is PackedFloat64Array or value is PackedStringArray \
-				or value is PackedVector2Array or value is PackedVector3Array \
-				or value is PackedColorArray or value is PackedVector4Array:
-			non_empty = value.size() > 0
-		elif value is Dictionary:
-			non_empty = value.size() > 0
-		elif value is String:
-			non_empty = value.length() > 0
-		else:
-			non_empty = true
-		if non_empty:
+		if _is_non_empty_iterable(value):
 			_hits[script_id][true_pid] += 1
 		else:
 			_hits[script_id][false_pid] += 1
@@ -114,28 +101,27 @@ static func hit_br2rng(script_id: int, line_pid: int, true_pid: int, false_pid: 
 ##   for i in GUTCheckCollector.br2rng(sid, true_pid, false_pid, range(10)):
 static func br2rng(script_id: int, true_pid: int, false_pid: int, value: Variant) -> Variant:
 	if _enabled:
-		# Check if the iterable is non-empty. For arrays, strings, dicts,
-		# and other collections that support size/length checks.
-		var non_empty := false
-		if value is Array or value is PackedByteArray or value is PackedInt32Array \
-				or value is PackedInt64Array or value is PackedFloat32Array \
-				or value is PackedFloat64Array or value is PackedStringArray \
-				or value is PackedVector2Array or value is PackedVector3Array \
-				or value is PackedColorArray or value is PackedVector4Array:
-			non_empty = value.size() > 0
-		elif value is Dictionary:
-			non_empty = value.size() > 0
-		elif value is String:
-			non_empty = value.length() > 0
-		else:
-			# For unknown iterables (generators, custom objects), assume non-empty
-			# since Godot will just skip the loop body if empty.
-			non_empty = true
-		if non_empty:
+		if _is_non_empty_iterable(value):
 			_hits[script_id][true_pid] += 1
 		else:
 			_hits[script_id][false_pid] += 1
 	return value
+
+
+static func _is_non_empty_iterable(value: Variant) -> bool:
+	if value is Array or value is PackedByteArray or value is PackedInt32Array \
+			or value is PackedInt64Array or value is PackedFloat32Array \
+			or value is PackedFloat64Array or value is PackedStringArray \
+			or value is PackedVector2Array or value is PackedVector3Array \
+			or value is PackedColorArray or value is PackedVector4Array:
+		return value.size() > 0
+	if value is Dictionary:
+		return value.size() > 0
+	if value is String:
+		return value.length() > 0
+	# For unknown iterables (generators, custom objects), assume non-empty
+	# since Godot will just skip the loop body if empty.
+	return true
 
 
 static func enable() -> void:

@@ -174,6 +174,13 @@ func test_semicolons_inside_parens_not_split():
 		"Semicolons inside parens should not create extra probes")
 
 
+func test_semicolons_inside_escaped_string_not_split():
+	var source = 'func foo():\n\tprint("a\\\";b"); var x = 1'
+	var result = _instrumenter.instrument(source, 0)
+	assert_eq(result.probe_count, 2,
+		"Escaped quotes inside strings should not confuse semicolon splitting")
+
+
 # ---------------------------------------------------------------------------
 # Ternary-if instrumentation
 # ---------------------------------------------------------------------------

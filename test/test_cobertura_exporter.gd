@@ -348,6 +348,29 @@ func test_partial_branch_coverage_percentage():
 	assert_string_contains(xml, 'condition-coverage="50% (1/2)"')
 
 
+func test_branch_line_uses_branch_hits_for_line_coverage():
+	var script_map = GUTCheckScriptMap.new()
+	script_map.path = "res://src/branch_line_hits.gd"
+
+	script_map.lines[1] = GUTCheckLineInfo.new(
+		1, GUTCheckScriptMap.LineType.BRANCH_IF)
+	script_map.lines[2] = GUTCheckLineInfo.new(
+		2, GUTCheckScriptMap.LineType.EXECUTABLE)
+	script_map.assign_probes()
+	script_map.assign_branch_probes()
+
+	GUTCheckCollector.register_script(0, "res://src/branch_line_hits.gd", script_map.probe_count, script_map)
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit(0, 1)  # body line
+	GUTCheckCollector.hit(0, 2)  # if-true branch
+	GUTCheckCollector.disable()
+
+	var exporter = GUTCheckCoberturaExporter.new()
+	var xml = exporter.generate_cobertura()
+
+	assert_string_contains(xml, '<line number="1" hits="1" branch="true"')
+
+
 func test_function_with_open_ended_end_line():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://src/open_func.gd"

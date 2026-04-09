@@ -151,3 +151,39 @@ func test_coverage_collector_summary():
 	assert_eq(summary.total_lines, 3)
 	assert_eq(summary.hit_lines, 2)
 	assert_almost_eq(summary.percentage, 66.666, 0.01)
+
+
+func test_export_lcov_writes_file_to_disk():
+	var script_map = GUTCheckScriptMap.new()
+	script_map.path = "res://src/lcov_disk_test.gd"
+	script_map.lines[1] = GUTCheckLineInfo.new(
+		1, GUTCheckScriptMap.LineType.EXECUTABLE)
+	script_map.assign_probes()
+	script_map.assign_branch_probes()
+
+	GUTCheckCollector.register_script(0, "res://src/lcov_disk_test.gd", script_map.probe_count, script_map)
+
+	var exporter = GUTCheckLcovExporter.new()
+	var tmp_path := "user://test_lcov_output.info"
+	var result := exporter.export_lcov(tmp_path)
+	assert_eq(result, OK, "export_lcov should return OK")
+
+	var file := FileAccess.open(tmp_path, FileAccess.READ)
+	assert_not_null(file, "Output file should exist")
+	if file:
+		var content := file.get_as_text()
+		file.close()
+		assert_string_contains(content, "TN:")
+		assert_string_contains(content, "end_of_record")
+		DirAccess.remove_absolute(tmp_path)
+
+
+func test_export_lcov_with_bad_path_returns_error():
+	var exporter = GUTCheckLcovExporter.new()
+	var result := exporter.export_lcov("/nonexistent/directory/file.info")
+	assert_ne(result, OK, "Should return error for invalid path")
+
+
+func test_to_absolute_path_passthrough_for_non_res_path():
+	var exporter = GUTCheckLcovExporter.new()
+	assert_eq(exporter._to_absolute_path("/tmp/example.gd"), "/tmp/example.gd")

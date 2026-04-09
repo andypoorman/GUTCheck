@@ -42,46 +42,13 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 
 		if token.type == GUTCheckToken.Type.NEWLINE:
 			if current_line_tokens.size() > 0:
-				if paren_depth > 0:
-					if not map.lines.has(first_token_line):
-						var line_type = _classify_tokens(
-							current_line_tokens, pending_static,
-							match_indent_stack, property_indent_stack, indent_level)
-						var func_name: String = func_stack.back().name if func_stack.size() > 0 else ""
-						var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-						map.lines[first_token_line] = GUTCheckLineInfo.new(
-							first_token_line, line_type, func_name, cls_name)
-						_handle_scope_entry(current_line_tokens, first_token_line,
-							indent_level, pending_static, func_stack, class_stack,
-							match_indent_stack, property_indent_stack, map)
-						pending_static = _check_static(current_line_tokens)
-					if token.line != first_token_line and not map.lines.has(token.line):
-						var func_name: String = func_stack.back().name if func_stack.size() > 0 else ""
-						var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-						map.lines[token.line] = GUTCheckLineInfo.new(
-							token.line, GUTCheckScriptMap.LineType.CONTINUATION, func_name, cls_name)
-				else:
-					var line_type = _classify_tokens(
-						current_line_tokens, pending_static,
-						match_indent_stack, property_indent_stack, indent_level)
-					var func_name: String = func_stack.back().name if func_stack.size() > 0 else ""
-					var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-					var info = GUTCheckLineInfo.new(
-						first_token_line, line_type, func_name, cls_name)
-					info.statement_count = _count_statements(current_line_tokens)
-					if line_type == GUTCheckScriptMap.LineType.EXECUTABLE:
-						var tc := _count_ternary_expressions(current_line_tokens)
-						if tc > 0:
-							info.ternary_count = tc
-							info.type = GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY
-					map.lines[first_token_line] = info
-					_handle_scope_entry(current_line_tokens, first_token_line,
-						indent_level, pending_static, func_stack, class_stack,
-						match_indent_stack, property_indent_stack, map)
-					pending_static = _check_static(current_line_tokens)
-
-					current_line_tokens.clear()
-					first_token_line = -1
+				var line_state := _finalize_current_line(
+					map, current_line_tokens, first_token_line, token.line, paren_depth,
+					pending_static, match_indent_stack, property_indent_stack,
+					indent_level, func_stack, class_stack)
+				pending_static = line_state.pending_static
+				current_line_tokens = line_state.current_line_tokens
+				first_token_line = line_state.first_token_line
 			else:
 				if not map.lines.has(token.line):
 					map.lines[token.line] = GUTCheckLineInfo.new(
@@ -112,6 +79,61 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 	map.assign_probes()
 	map.assign_branch_probes()
 	return map
+
+
+func _finalize_current_line(map: GUTCheckScriptMap, current_line_tokens: Array,
+		first_token_line: int, newline_token_line: int, paren_depth: int,
+		pending_static: bool, match_indent_stack: Array[int],
+		property_indent_stack: Array[int], indent_level: int,
+		func_stack: Array, class_stack: Array) -> Dictionary:
+	var line_type = _classify_tokens(
+		current_line_tokens, pending_static,
+		match_indent_stack, property_indent_stack, indent_level)
+	var scope_names := _get_scope_names(func_stack, class_stack)
+
+	if paren_depth > 0:
+		if not map.lines.has(first_token_line):
+			map.lines[first_token_line] = GUTCheckLineInfo.new(
+				first_token_line, line_type, scope_names.func_name, scope_names.cls_name)
+			_handle_scope_entry(current_line_tokens, first_token_line,
+				indent_level, pending_static, func_stack, class_stack,
+				match_indent_stack, property_indent_stack, map)
+			pending_static = _check_static(current_line_tokens)
+		if newline_token_line != first_token_line and not map.lines.has(newline_token_line):
+			map.lines[newline_token_line] = GUTCheckLineInfo.new(
+				newline_token_line, GUTCheckScriptMap.LineType.CONTINUATION,
+				scope_names.func_name, scope_names.cls_name)
+		return {
+			"pending_static": pending_static,
+			"current_line_tokens": current_line_tokens,
+			"first_token_line": first_token_line,
+		}
+
+	var info = GUTCheckLineInfo.new(
+		first_token_line, line_type, scope_names.func_name, scope_names.cls_name)
+	info.statement_count = _count_statements(current_line_tokens)
+	if line_type == GUTCheckScriptMap.LineType.EXECUTABLE:
+		var ternary_count := _count_ternary_expressions(current_line_tokens)
+		if ternary_count > 0:
+			info.ternary_count = ternary_count
+			info.type = GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY
+	map.lines[first_token_line] = info
+	_handle_scope_entry(current_line_tokens, first_token_line,
+		indent_level, pending_static, func_stack, class_stack,
+		match_indent_stack, property_indent_stack, map)
+
+	return {
+		"pending_static": _check_static(current_line_tokens),
+		"current_line_tokens": [],
+		"first_token_line": -1,
+	}
+
+
+func _get_scope_names(func_stack: Array, class_stack: Array) -> Dictionary:
+	return {
+		"func_name": func_stack.back().name if func_stack.size() > 0 else "",
+		"cls_name": class_stack.back().name if class_stack.size() > 0 else "",
+	}
 
 
 func _classify_tokens(tokens: Array, preceded_by_static: bool,

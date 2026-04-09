@@ -32,7 +32,7 @@ func add_file(path: String) -> int:
 
 ## Add raw LCOV content string to the merge set.
 func add_content(content: String) -> void:
-	var current_sf := ""
+	var current_sf: String = ""
 	for line in content.split("\n"):
 		line = line.strip_edges()
 		if line.is_empty():
@@ -49,7 +49,7 @@ func add_content(content: String) -> void:
 
 		elif line.begins_with("FN:"):
 			# FN:<line>,<name>
-			var parts := line.substr(3).split(",", true, 2)
+			var parts: PackedStringArray = line.substr(3).split(",", true, 2)
 			if parts.size() >= 2 and _records.has(current_sf):
 				var fn_name: String = parts[1]
 				if not _records[current_sf].functions.has(fn_name):
@@ -60,7 +60,7 @@ func add_content(content: String) -> void:
 
 		elif line.begins_with("FNDA:"):
 			# FNDA:<hits>,<name>
-			var parts := line.substr(5).split(",", true, 2)
+			var parts: PackedStringArray = line.substr(5).split(",", true, 2)
 			if parts.size() >= 2 and _records.has(current_sf):
 				var fn_name: String = parts[1]
 				var hits: int = parts[0].to_int()
@@ -74,7 +74,7 @@ func add_content(content: String) -> void:
 
 		elif line.begins_with("BRDA:"):
 			# BRDA:<line>,<block>,<branch>,<hits>
-			var parts := line.substr(5).split(",")
+			var parts: PackedStringArray = line.substr(5).split(",")
 			if parts.size() >= 4 and _records.has(current_sf):
 				var key := "%s,%s,%s" % [parts[0], parts[1], parts[2]]
 				var hits: int = parts[3].to_int()
@@ -85,7 +85,7 @@ func add_content(content: String) -> void:
 
 		elif line.begins_with("DA:"):
 			# DA:<line>,<hits>
-			var parts := line.substr(3).split(",")
+			var parts: PackedStringArray = line.substr(3).split(",")
 			if parts.size() >= 2 and _records.has(current_sf):
 				var ln: int = parts[0].to_int()
 				var hits: int = parts[1].to_int()
