@@ -295,12 +295,14 @@ func test_is_coverage_passing_negative_target_returns_true():
 
 
 func test_is_coverage_passing_exceeds_target():
-	# Register a fake script with all probes hit
-	GUTCheckCollector.register_script(900, "res://fake_pass.gd", 3, null)
+	# Register a real script with a real script_map, then hit every probe
+	# so line coverage is 100%.
+	_register_script_manually("res://test/resources/coverage_target.gd", 900)
 	GUTCheckCollector.enable()
-	GUTCheckCollector.hit(900, 0)
-	GUTCheckCollector.hit(900, 1)
-	GUTCheckCollector.hit(900, 2)
+	var hits := GUTCheckCollector.get_hits()
+	var probe_count: int = hits[900].size()
+	for i in range(probe_count):
+		GUTCheckCollector.hit(900, i)
 	GUTCheckCollector.disable()
 
 	var gc := GUTCheck.new()
@@ -308,35 +310,40 @@ func test_is_coverage_passing_exceeds_target():
 	gc._config["coverage_target"] = 50.0
 
 	assert_true(gc.is_coverage_passing(),
-		"100% coverage should pass a 50% target")
+		"100%% coverage should pass a 50%% target")
 
 
 func test_is_coverage_passing_below_target():
-	# Register a fake script with no probes hit
-	GUTCheckCollector.register_script(901, "res://fake_fail.gd", 10, null)
+	# Register a real script with a real script_map, no probes hit → 0% lines.
+	_register_script_manually("res://test/resources/coverage_target.gd", 901)
 
 	var gc := GUTCheck.new()
 	gc.load_config()
 	gc._config["coverage_target"] = 50.0
 
 	assert_false(gc.is_coverage_passing(),
-		"0% coverage should fail a 50% target")
+		"0%% coverage should fail a 50%% target")
 
 
 func test_is_coverage_passing_exactly_at_target():
-	# Register a fake script with exactly half hit
-	GUTCheckCollector.register_script(902, "res://fake_exact.gd", 4, null)
+	# Register a real script, hit all probes, then set the coverage_target
+	# to the exact line percentage the report computes. This tests the >=
+	# comparison at the boundary without hardcoding a percentage value.
+	_register_script_manually("res://test/resources/coverage_target.gd", 902)
 	GUTCheckCollector.enable()
-	GUTCheckCollector.hit(902, 0)
-	GUTCheckCollector.hit(902, 1)
+	var hits := GUTCheckCollector.get_hits()
+	var probe_count: int = hits[902].size()
+	for i in range(probe_count):
+		GUTCheckCollector.hit(902, i)
 	GUTCheckCollector.disable()
 
 	var gc := GUTCheck.new()
 	gc.load_config()
-	gc._config["coverage_target"] = 50.0
+	var report := gc._build_coverage_report()
+	gc._config["coverage_target"] = report.total_line_pct
 
 	assert_true(gc.is_coverage_passing(),
-		"Exactly meeting the target should pass")
+		"Exactly meeting the target should pass (>= comparison)")
 
 
 # ===========================================================================
