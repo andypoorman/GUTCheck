@@ -270,8 +270,8 @@ func is_coverage_passing() -> bool:
 	var target: float = _config.get("coverage_target", 0.0)
 	if target <= 0.0:
 		return true
-	var summary := GUTCheckCollector.get_coverage_summary()
-	return summary.percentage >= target
+	var report := _build_coverage_report()
+	return report.total_line_pct >= target
 
 
 func _discover_source_files() -> Array[String]:
