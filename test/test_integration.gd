@@ -1935,6 +1935,52 @@ func test_compute_coverage_includes_else_and_pattern_lines():
 	assert_eq(result.uncovered_lines.size(), 0)
 
 
+func test_compute_coverage_empty_script():
+	## Edge case: a script with no executable lines and no branches.
+	## Exercises the empty-iterable branch of the for loops added for
+	## LCOV spec compliance.
+	var sm = GUTCheckScriptMap.new()
+	sm.path = "res://test_empty.gd"
+	sm.probe_count = 0
+
+	var hits := PackedInt32Array()
+	var result = GUTCheckCoverageComputer.compute_script_coverage(sm, hits)
+
+	assert_eq(result.lines_found, 0)
+	assert_eq(result.lines_hit, 0)
+	assert_eq(result.branches_found, 0)
+	assert_eq(result.branches_hit, 0)
+	assert_eq(result.uncovered_lines.size(), 0)
+
+
+func test_lcov_export_empty_script():
+	## Exercises the LCOV exporter with a registered script that has no
+	## executable lines, hitting the empty-iterable branches in
+	## _emit_line_records.
+	var snapshot := GUTCheckCollector.snapshot()
+	GUTCheckCollector.unlock()
+	GUTCheckCollector.clear()
+
+	var sm = GUTCheckScriptMap.new()
+	sm.path = "res://test_empty.gd"
+	sm.probe_count = 0
+
+	GUTCheckCollector.register_script(99, "res://test_empty.gd", 0, sm)
+	GUTCheckCollector.enable()
+	GUTCheckCollector.disable()
+
+	var exporter := GUTCheckLcovExporter.new()
+	var lcov := exporter.generate_lcov()
+
+	# Should still produce a valid record with LF:0 LH:0
+	assert_string_contains(lcov, "SF:")
+	assert_string_contains(lcov, "LF:0")
+	assert_string_contains(lcov, "LH:0")
+	assert_string_contains(lcov, "end_of_record")
+
+	GUTCheckCollector.restore_snapshot(snapshot)
+
+
 # ---------------------------------------------------------------------------
 # aggregate_coverage
 # ---------------------------------------------------------------------------
