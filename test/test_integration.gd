@@ -1886,6 +1886,101 @@ func test_compute_script_coverage_none_hit():
 	assert_eq(result.uncovered_lines.size(), 4)
 
 
+func test_compute_coverage_includes_else_and_pattern_lines():
+	## Branch-only lines (else:, match patterns) must be counted in lines_found.
+	## This exercises the branch-only line inclusion added for LCOV spec compliance.
+	var sm = GUTCheckScriptMap.new()
+	sm.path = "res://test_else.gd"
+
+	# func foo():       line 1 (FUNC_DEF)
+	#   var a = 1        line 2 (EXECUTABLE)
+	#   if a > 0:        line 3 (BRANCH_IF)
+	#     return 1       line 4 (EXECUTABLE)
+	#   else:            line 5 (BRANCH_ELSE)  <-- not in exec_lines
+	#     return 0       line 6 (EXECUTABLE)
+
+	sm.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.FUNC_DEF, "foo")
+	sm.lines[2] = GUTCheckLineInfo.new(2, GUTCheckScriptMap.LineType.EXECUTABLE, "foo")
+	sm.lines[3] = GUTCheckLineInfo.new(3, GUTCheckScriptMap.LineType.BRANCH_IF, "foo")
+	sm.lines[4] = GUTCheckLineInfo.new(4, GUTCheckScriptMap.LineType.EXECUTABLE, "foo")
+	sm.lines[5] = GUTCheckLineInfo.new(5, GUTCheckScriptMap.LineType.BRANCH_ELSE, "foo")
+	sm.lines[6] = GUTCheckLineInfo.new(6, GUTCheckScriptMap.LineType.EXECUTABLE, "foo")
+
+	var func_info = GUTCheckFunctionInfo.new("foo", 1)
+	func_info.end_line = 6
+	sm.functions.append(func_info)
+
+	# Line probes: lines 2,3,4,6 -> probe IDs 0,1,2,3
+	sm.probe_to_line[0] = 2
+	sm.probe_to_line[1] = 3
+	sm.probe_to_line[2] = 4
+	sm.probe_to_line[3] = 6
+	sm.probe_count = 4
+
+	# Branch probes for if (line 3): true=pid4, false=pid5
+	sm.branches.append(GUTCheckBranchInfo.new(3, 0, 0, 4, true))
+	sm.branches.append(GUTCheckBranchInfo.new(3, 0, 1, 5, false))
+	# Branch probe for else (line 5): pid6
+	sm.branches.append(GUTCheckBranchInfo.new(5, 0, 2, 6, true))
+	sm.probe_count = 7
+
+	# All probes hit: lines 2,3,4,6 + branch true, false, else
+	var hits := PackedInt32Array([1, 1, 1, 1, 1, 0, 1])
+	var result = GUTCheckCoverageComputer.compute_script_coverage(sm, hits)
+
+	# 5 lines: 2,3,4,5,6 (line 5 = else: is branch-only but must be counted)
+	assert_eq(result.lines_found, 5, "Should count else: line in lines_found")
+	# Lines 2,3,4,6 hit via probes; line 5 hit via body derivation
+	assert_eq(result.lines_hit, 5, "All lines including else: should be hit")
+	assert_eq(result.uncovered_lines.size(), 0)
+
+
+func test_compute_coverage_empty_script():
+	## Edge case: a script with no executable lines and no branches.
+	## Exercises the empty-iterable branch of the for loops added for
+	## LCOV spec compliance.
+	var sm = GUTCheckScriptMap.new()
+	sm.path = "res://test_empty.gd"
+	sm.probe_count = 0
+
+	var hits := PackedInt32Array()
+	var result = GUTCheckCoverageComputer.compute_script_coverage(sm, hits)
+
+	assert_eq(result.lines_found, 0)
+	assert_eq(result.lines_hit, 0)
+	assert_eq(result.branches_found, 0)
+	assert_eq(result.branches_hit, 0)
+	assert_eq(result.uncovered_lines.size(), 0)
+
+
+func test_lcov_export_empty_script():
+	## Exercises the LCOV exporter with a registered script that has no
+	## executable lines, hitting the empty-iterable branches in
+	## _emit_line_records.
+	var snapshot := GUTCheckCollector.snapshot()
+	GUTCheckCollector.unlock()
+	GUTCheckCollector.clear()
+
+	var sm = GUTCheckScriptMap.new()
+	sm.path = "res://test_empty.gd"
+	sm.probe_count = 0
+
+	GUTCheckCollector.register_script(99, "res://test_empty.gd", 0, sm)
+	GUTCheckCollector.enable()
+	GUTCheckCollector.disable()
+
+	var exporter := GUTCheckLcovExporter.new()
+	var lcov := exporter.generate_lcov()
+
+	# Should still produce a valid record with LF:0 LH:0
+	assert_string_contains(lcov, "SF:")
+	assert_string_contains(lcov, "LF:0")
+	assert_string_contains(lcov, "LH:0")
+	assert_string_contains(lcov, "end_of_record")
+
+	GUTCheckCollector.restore_snapshot(snapshot)
+
+
 # ---------------------------------------------------------------------------
 # aggregate_coverage
 # ---------------------------------------------------------------------------

@@ -110,8 +110,22 @@ func _emit_line_records(lines: PackedStringArray, hits: PackedInt32Array, contex
 	var line_probes: Dictionary = context.line_probes
 	var branch_line_hits: Dictionary = context.branch_line_hits
 
+	# Collect all lines that need DA records: executable lines + branch lines.
+	# LCOV spec requires every line with a BRDA record to also have a DA record.
 	var executable_lines: Array[int] = context.exec_lines
-	for line_num in executable_lines:
+	var exec_set: Dictionary = {}
+	for ln in executable_lines:
+		exec_set[ln] = true
+
+	var all_da_lines: Array[int] = executable_lines.duplicate()
+	var script_map = context.script_map
+	for branch_info in script_map.branches:
+		if not exec_set.has(branch_info.line_number):
+			exec_set[branch_info.line_number] = true
+			all_da_lines.append(branch_info.line_number)
+	all_da_lines.sort()
+
+	for line_num in all_da_lines:
 		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
 			line_num, line_probes, hits, branch_line_hits)
 		lines.append("DA:%d,%d" % [line_num, hit_count])

@@ -563,6 +563,91 @@ func test_no_probe_id_exceeds_array():
 			"Branch probe ID %d should be < probe_count %d" % [b.probe_id, probe_count])
 
 
+func test_branch_only_lines_have_da_records():
+	## LCOV spec: every line with a BRDA record must also have a DA record.
+	## else: and match pattern lines have branch probes but were previously
+	## missing from DA output, causing codecov to miscount total lines.
+	var source := _load_validation_source()
+	var result := _instrument_and_register(source)
+
+	var script := GDScript.new()
+	script.source_code = result.source
+	var err := script.reload()
+	assert_eq(err, OK, "Instrumented script should compile")
+	if err != OK:
+		return
+
+	var target = script.new()
+	GUTCheckCollector.enable()
+	target.branching(true)
+	target.nested_blocks(3)
+	GUTCheckCollector.disable()
+
+	var lcov := _get_lcov()
+	var da := _parse_da_lines(lcov)
+	var brda := _parse_brda_lines(lcov)
+
+	# Every BRDA line must have a corresponding DA record
+	var brda_lines: Dictionary = {}
+	for b in brda:
+		brda_lines[b.line] = true
+
+	for ln: int in brda_lines:
+		assert_true(da.has(ln),
+			"Line %d has BRDA but no DA record (LCOV spec violation)" % ln)
+
+	# Specifically: else: on line 23 and line 51 must have DA records
+	assert_true(da.has(23), "else: on line 23 must have a DA record")
+	assert_true(da.has(51), "else: on line 51 must have a DA record")
+
+	# Line 23's else body was not entered (branching(true)), so hits from
+	# body derivation should be 0
+	if da.has(23):
+		assert_eq(da[23], 0, "else: on line 23 should have 0 hits (true branch taken)")
+
+	# Line 51's else was entered (nested_blocks with odd indices)
+	if da.has(51):
+		assert_gt(da[51], 0, "else: on line 51 should be hit (odd iterations)")
+
+
+func test_compute_coverage_includes_branch_lines():
+	## Verify compute_script_coverage counts branch-only lines in its totals,
+	## matching the LCOV exporter's DA count.
+	var source := _load_validation_source()
+	var result := _instrument_and_register(source)
+
+	var script := GDScript.new()
+	script.source_code = result.source
+	var err := script.reload()
+	assert_eq(err, OK, "Instrumented script should compile")
+	if err != OK:
+		return
+
+	var target = script.new()
+	GUTCheckCollector.enable()
+	target.fully_covered(1)
+	target.branching(true)
+	target.for_loop_then_more(2)
+	target.nested_blocks(3)
+	GUTCheckCollector.disable()
+
+	# Get LCOV counts
+	var lcov := _get_lcov()
+	var summary := _parse_summary(lcov)
+
+	# Get compute_script_coverage counts
+	var hits := GUTCheckCollector.get_hits()
+	var maps := GUTCheckCollector.get_script_maps()
+	for sid: int in maps:
+		var coverage := GUTCheckCoverageComputer.compute_script_coverage(
+			maps[sid], hits.get(sid, PackedInt32Array()))
+		# lines_found from compute should match LF from LCOV
+		assert_eq(coverage.lines_found, summary.get("LF", -1),
+			"compute_script_coverage lines_found should match LCOV LF")
+		assert_eq(coverage.lines_hit, summary.get("LH", -1),
+			"compute_script_coverage lines_hit should match LCOV LH")
+
+
 func test_instrumented_script_compiles():
 	## The instrumented source must be valid GDScript.
 	var source := _load_validation_source()
