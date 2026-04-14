@@ -9,11 +9,26 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var line_probes: Dictionary = context.line_probes
 	var branch_line_hits: Dictionary = context.branch_line_hits
 	var exec_lines: Array[int] = context.exec_lines
-	var lines_found := exec_lines.size()
+
+	# Include branch-only lines (else, match patterns) in line counts so the
+	# console summary matches the LCOV output.  LCOV spec requires DA records
+	# for every line that has a BRDA record.
+	var exec_set: Dictionary = {}
+	for ln in exec_lines:
+		exec_set[ln] = true
+
+	var all_da_lines: Array[int] = exec_lines.duplicate()
+	for b in script_map.branches:
+		if not exec_set.has(b.line_number):
+			exec_set[b.line_number] = true
+			all_da_lines.append(b.line_number)
+	all_da_lines.sort()
+
+	var lines_found := all_da_lines.size()
 	var lines_hit := 0
 	var uncovered_lines: Array[int] = []
 
-	for ln in exec_lines:
+	for ln in all_da_lines:
 		var hit_count := get_line_hit_count(ln, line_probes, hits, branch_line_hits)
 		if hit_count > 0:
 			lines_hit += 1
