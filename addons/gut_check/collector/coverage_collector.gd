@@ -5,6 +5,10 @@ class_name GUTCheckCollector
 ##
 ## This class is entirely static so that instrumented scripts can reference it
 ## by class_name without needing an instance or autoload.
+##
+## NOT thread-safe. All instrumented code must run on the main thread.
+## Loading instrumented scripts on background threads (e.g., ResourceLoader)
+## may corrupt coverage data.
 
 
 ## script_id -> PackedInt32Array of hit counts (indexed by probe_id)
@@ -198,6 +202,8 @@ static func get_script_maps() -> Dictionary:
 	return _script_maps
 
 
+## Returns probe-based coverage counts (hit probes / total probes), NOT line-based.
+## For canonical line-coverage metrics, use GUTCheck._build_coverage_report().total_line_pct.
 static func get_coverage_summary() -> Dictionary:
 	var total_lines := 0
 	var hit_lines := 0

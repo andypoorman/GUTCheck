@@ -47,6 +47,9 @@ func load_config(path: String = DEFAULT_CONFIG_PATH) -> Dictionary:
 		return _config
 
 	var user_config: Dictionary = json.data
+	for key: String in user_config:
+		if not DEFAULT_CONFIG.has(key):
+			push_warning("GUTCheck: Unknown config key '%s' in %s (typo?)" % [key, path])
 	_config.merge(user_config, true)
 	return _config
 

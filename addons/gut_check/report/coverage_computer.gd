@@ -146,10 +146,12 @@ static func format_line_ranges(line_numbers: Array[int]) -> String:
 
 
 ## Check if source text contains inner class definitions.
+## Uses the tokenizer to avoid false positives from "class " inside strings.
 static func has_inner_classes_in_source(source: String) -> bool:
-	for line in source.split("\n"):
-		var stripped: String = line.strip_edges()
-		if stripped.begins_with("class ") and not stripped.begins_with("class_name"):
+	var tokenizer := GUTCheckTokenizer.new()
+	var tokens: Array = tokenizer.tokenize(source)
+	for token in tokens:
+		if token.type == GUTCheckToken.Type.KW_CLASS:
 			return true
 	return false
 
