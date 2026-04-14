@@ -244,6 +244,71 @@ func test_merge_clear():
 	assert_eq(merger.generate_merged(), "", "Clear should empty all records")
 
 
+func test_merge_add_file_reads_from_disk():
+	var tmp := "user://test_merge_input.lcov"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string("TN:\nSF:/a.gd\nDA:1,3\nLF:1\nLH:1\nend_of_record\n")
+	f.close()
+	var merger := GUTCheckLcovMerger.new()
+	assert_eq(merger.add_file(tmp), OK)
+	assert_string_contains(merger.generate_merged(), "SF:/a.gd")
+	DirAccess.remove_absolute(tmp)
+
+
+func test_merge_add_file_missing_returns_error():
+	var merger := GUTCheckLcovMerger.new()
+	assert_eq(merger.add_file("user://__does_not_exist__.lcov"),
+		ERR_FILE_NOT_FOUND)
+
+
+func test_merge_write_merged_to_disk():
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content("TN:\nSF:/path/to/script.gd\nDA:1,5\nLF:1\nLH:1\nend_of_record\n")
+	var tmp_path := "user://test_merged.lcov"
+	assert_eq(merger.write_merged(tmp_path), OK)
+	var file := FileAccess.open(tmp_path, FileAccess.READ)
+	assert_not_null(file)
+	if file:
+		var content := file.get_as_text()
+		file.close()
+		assert_string_contains(content, "SF:/path/to/script.gd")
+		DirAccess.remove_absolute(tmp_path)
+
+
+func test_merge_write_merged_bad_path_returns_error():
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content("TN:\nSF:/x.gd\nDA:1,5\nLF:1\nLH:1\nend_of_record\n")
+	assert_ne(merger.write_merged("/nonexistent/dir/merged.lcov"), OK)
+
+
+func test_merge_fnda_before_fn_creates_synthetic_entry():
+	# FNDA with no matching FN — should create entry with line=0.
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content("TN:\nSF:/a.gd\nFNDA:5,bar\nend_of_record\n")
+	assert_string_contains(merger.generate_merged(), "FNDA:5,bar")
+
+
+func test_merge_fn_without_comma_is_skipped():
+	# Malformed FN line (no comma) should not crash or record anything.
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content("TN:\nSF:/a.gd\nFN:bad\nend_of_record\n")
+	assert_false(merger.generate_merged().contains("FNDA"))
+
+
+func test_merge_orphan_records_without_sf_are_ignored():
+	# Records appearing before any SF line — each record type has a
+	# `_records.has(current_sf)` guard that skips them.
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content("TN:\nFN:5,foo\nFNDA:2,foo\nBRDA:1,0,0,1\nDA:1,1\nend_of_record\n")
+	assert_eq(merger.generate_merged(), "")
+
+
+func test_merge_blank_lines_are_skipped():
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content("\n\nTN:\nSF:/a.gd\n\nDA:1,1\nLF:1\nLH:1\nend_of_record\n\n")
+	assert_string_contains(merger.generate_merged(), "SF:/a.gd")
+
+
 # ---------------------------------------------------------------------------
 # 5. Lambda function coverage
 # ---------------------------------------------------------------------------

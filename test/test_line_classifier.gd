@@ -351,3 +351,85 @@ func test_statement_if_not_ternary():
 	var map = _classify(source)
 	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.BRANCH_IF,
 		"Statement-level if should still be BRANCH_IF, not EXECUTABLE_TERNARY")
+
+
+# ---------------------------------------------------------------------------
+# Empty inputs and edge-case predicates
+# ---------------------------------------------------------------------------
+
+func test_classifier_handles_empty_token_stream():
+	# tokens.size() == 0 path (main loop + `last_line = 0`).
+	var map = _classifier.classify([] as Array, "res://empty.gd")
+	assert_not_null(map)
+	assert_eq(map.functions.size(), 0)
+
+
+func test_classifier_annotation_at_eof_only_token():
+	# Line with just an annotation token — single-token non-executable path.
+	var map = _classify("@onready\nvar x = 1")
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
+
+
+func test_annotation_only_with_parens_non_executable():
+	# @export_range(0, 10) on a line by itself — annotation with a paren-arg
+	# that consumes all tokens -> NON_EXECUTABLE.
+	var map = _classify("@export_range(0, 10)\nvar x := 5")
+	assert_true(map.lines.has(1))
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
+
+
+func test_annotation_with_args_then_code_is_executable():
+	# @export_range(0, 10) var x := 5 -> executable (annotation-recursion path).
+	var map = _classify("@export_range(0, 10) var x := 5")
+	assert_true(map.lines.has(1))
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+
+
+# ---------------------------------------------------------------------------
+# Match pattern edge cases
+# ---------------------------------------------------------------------------
+
+func test_match_pattern_with_when_guard():
+	var source = "func f(x):\n\tmatch x:\n\t\tval when val > 0:\n\t\t\treturn 1"
+	var map = _classify(source)
+	assert_true(map.lines.has(3))
+	assert_eq(map.lines[3].type, GUTCheckScriptMap.LineType.BRANCH_PATTERN)
+
+
+func test_match_pattern_with_parens():
+	# Pattern like "[a, b]:" hits the open/close-group depth branches.
+	var source = "func f(x):\n\tmatch x:\n\t\t[1, 2]:\n\t\t\treturn 1"
+	var map = _classify(source)
+	assert_true(map.lines.has(3))
+	assert_eq(map.lines[3].type, GUTCheckScriptMap.LineType.BRANCH_PATTERN)
+
+
+func test_match_control_flow_keyword_not_pattern():
+	# Line inside match body starting with 'if' — must not classify as pattern.
+	var source = "func f(x):\n\tmatch x:\n\t\t1:\n\t\t\tif x > 0:\n\t\t\t\treturn 1"
+	var map = _classify(source)
+	assert_eq(map.lines[4].type, GUTCheckScriptMap.LineType.BRANCH_IF)
+
+
+func test_match_pattern_no_colon_returns_false():
+	# A match body line without a colon — exercises the "no colon found" path.
+	var source = "func f(x):\n\tmatch x:\n\t\t1:\n\t\t\tvar y = 1\n\t\t\ty += 1"
+	var map = _classify(source)
+	assert_eq(map.lines[4].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+
+
+# ---------------------------------------------------------------------------
+# Property accessors
+# ---------------------------------------------------------------------------
+
+func test_property_accessor_set_with_paren():
+	var source = "var x: int:\n\tget:\n\t\treturn 1\n\tset(value):\n\t\tx = value"
+	var map = _classify(source)
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR)
+	assert_eq(map.lines[4].type, GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR)
+
+
+func test_var_no_trailing_colon_not_property():
+	# Var without trailing colon -> _has_trailing_colon_after_type returns false.
+	var map = _classify("var x := 5")
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
