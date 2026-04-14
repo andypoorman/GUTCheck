@@ -25,6 +25,14 @@ func test_inner_class_false_positive_class_name():
 		"class_name should not be detected as inner class")
 
 
+func test_inner_class_false_positive_multiline_string():
+	## A multiline string containing "class Foo:" should NOT trigger inner class detection.
+	var source := 'extends Node\n\nvar doc := """\nclass Foo:\n\tThis is documentation\n"""\n\nfunc bar():\n\tpass'
+	assert_false(
+		GUTCheckCoverageComputer.has_inner_classes_in_source(source),
+		"class keyword inside multiline string should not be detected as inner class")
+
+
 func test_inner_class_script_can_be_instrumented():
 	## Inner class scripts should now be instrumented (not skipped).
 	## The instrumenter should produce valid probes for both the outer
