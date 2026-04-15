@@ -928,6 +928,128 @@ func test_cobertura_xml_branch_elements_present():
 		assert_string_contains(xml, 'type="jump"')
 
 
+func test_lcov_exporter_export_to_disk():
+	var exporter := GUTCheckLcovExporter.new()
+	var tmp_path := "user://test_integration_lcov.info"
+	var result := exporter.export_lcov(tmp_path, "integration")
+	assert_eq(result, OK, "export_lcov should return OK")
+	var file := FileAccess.open(tmp_path, FileAccess.READ)
+	assert_not_null(file)
+	if file:
+		file.close()
+		DirAccess.remove_absolute(tmp_path)
+
+
+func test_lcov_exporter_export_bad_path():
+	var exporter := GUTCheckLcovExporter.new()
+	var result := exporter.export_lcov("/nonexistent/dir/out.info")
+	assert_ne(result, OK, "Bad path should return error")
+
+
+func test_lcov_exporter_to_absolute_path_passthrough():
+	# Non-res paths pass through _to_absolute_path unchanged.
+	var exporter := GUTCheckLcovExporter.new()
+	assert_eq(exporter._to_absolute_path("/tmp/abs.gd"), "/tmp/abs.gd")
+
+
+func test_lcov_exporter_qualified_func_name_with_class_prefix():
+	var func_info := GUTCheckFunctionInfo.new("foo", 5, "Inner")
+	var exporter := GUTCheckLcovExporter.new()
+	assert_eq(exporter._qualified_func_name(func_info), "Inner.foo")
+
+
+func test_cobertura_to_relative_path_passthrough_for_non_res():
+	var exporter := GUTCheckCoberturaExporter.new()
+	assert_eq(exporter._to_relative_path("/tmp/abs.gd"), "/tmp/abs.gd")
+
+
+func test_cobertura_rate_zero_total_returns_zero():
+	var exporter := GUTCheckCoberturaExporter.new()
+	assert_eq(exporter._rate(0, 0), "0")
+
+
+# ===========================================================================
+# COVERAGE COMPUTER — edge cases for branch hit derivation
+# ===========================================================================
+
+func test_get_branch_hit_count_returns_zero_when_line_info_missing():
+	var script_map := GUTCheckScriptMap.new()
+	var branch := GUTCheckBranchInfo.new(10, 0, 0, 0, true)
+	script_map.branches.append(branch)
+	var hits := PackedInt32Array([0])
+
+	var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
+		branch, script_map, hits)
+	assert_eq(hit_count, 0)
+
+
+func test_get_branch_hit_count_returns_zero_for_non_derivable_branch_type():
+	var script_map := GUTCheckScriptMap.new()
+	script_map.lines[10] = GUTCheckLineInfo.new(10, GUTCheckScriptMap.LineType.BRANCH_IF)
+	var branch := GUTCheckBranchInfo.new(10, 0, 0, 0, true)
+	script_map.branches.append(branch)
+	var hits := PackedInt32Array([0])
+
+	var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
+		branch, script_map, hits)
+	assert_eq(hit_count, 0)
+
+
+func test_derive_body_hits_returns_zero_for_missing_probe_mapping():
+	var hits := PackedInt32Array([3])
+	var hit_count := GUTCheckCoverageComputer.derive_body_hits(20, null, hits, {})
+	assert_eq(hit_count, 0)
+
+
+func test_derive_body_hits_returns_zero_for_out_of_range_probe_id():
+	var hits := PackedInt32Array([1])
+	var body_probe_ids := {20: 5}
+	var hit_count := GUTCheckCoverageComputer.derive_body_hits(
+		20, null, hits, body_probe_ids)
+	assert_eq(hit_count, 0)
+
+
+func test_build_body_probe_ids_without_body_line_keeps_default_value():
+	var script_map := GUTCheckScriptMap.new()
+	script_map.lines[5] = GUTCheckLineInfo.new(5, GUTCheckScriptMap.LineType.BRANCH_ELSE)
+	var branch := GUTCheckBranchInfo.new(5, 0, 0, 0, true)
+	script_map.branches.append(branch)
+
+	var body_probe_ids := GUTCheckCoverageComputer.build_body_probe_ids(
+		script_map, {}, [])
+	assert_true(body_probe_ids.has(5))
+	assert_eq(body_probe_ids[5], -1)
+
+
+func test_build_body_probe_ids_skips_null_line_info():
+	# line_info missing for branch.line_number -> continue (line 270-271).
+	var script_map := GUTCheckScriptMap.new()
+	var branch := GUTCheckBranchInfo.new(99, 0, 0, 0, true)
+	script_map.branches.append(branch)
+
+	var body_probe_ids := GUTCheckCoverageComputer.build_body_probe_ids(
+		script_map, {}, [])
+	assert_false(body_probe_ids.has(99))
+
+
+func test_get_line_hit_count_uses_min_across_multiple_probes():
+	# Covers the probes.size() > 1 branch in get_line_hit_count.
+	var hits := PackedInt32Array([7, 3, 9])
+	var line_probes := {5: [0, 1, 2]}
+	var count := GUTCheckCoverageComputer.get_line_hit_count(5, line_probes, hits)
+	assert_eq(count, 3, "Multi-probe line hit count should be min across probes")
+
+
+func test_compute_script_coverage_empty_script_returns_default_pct():
+	var script_map := GUTCheckScriptMap.new()
+	var report := GUTCheckCoverageComputer.compute_script_coverage(
+		script_map, PackedInt32Array())
+	assert_eq(report.lines_found, 0)
+	assert_eq(report.line_pct, 100.0)
+	assert_eq(report.branches_found, 0)
+	assert_eq(report.branch_pct, 100.0)
+
+
 # ===========================================================================
 # SCRIPT REGISTRY — pure unit tests
 # ===========================================================================

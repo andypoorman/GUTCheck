@@ -237,3 +237,88 @@ func test_ternary_condition_wrapped_correctly():
 	assert_string_contains(line2, ",cond)")
 	# The else keyword should still be present after the wrapped condition
 	assert_string_contains(line2, ') else "no"')
+
+
+# ---------------------------------------------------------------------------
+# Instrumenter passthrough — lines without probes
+# ---------------------------------------------------------------------------
+
+func test_preserves_lines_without_probes():
+	# Lines without instrumentation (top-level var, blank) must pass through
+	# unchanged — covers the `line_to_first_probe.has` false branch and the
+	# indent.length() == 0 branch.
+	var source = "extends Node\n\nvar _field = 1\n\nfunc foo():\n\treturn 1"
+	var result = _instrumenter.instrument(source, 0, "res://it.gd")
+	var out_lines = result.source.split("\n")
+	assert_eq(out_lines[0], "extends Node")  # line 1 passthrough
+	assert_eq(out_lines[1], "")              # blank line passthrough
+	assert_string_contains(out_lines[5], "GUTCheckCollector.hit(")  # probe injected
+
+
+# ---------------------------------------------------------------------------
+# Probe injector — static function edge cases
+# ---------------------------------------------------------------------------
+
+func test_probe_injector_ternary_without_probes_falls_back_to_hit():
+	# Ternary line with zero branch probes — wrap_ternary must emit a plain
+	# hit() call and skip br2 wrapping.
+	var content = 'return "yes" if x else "no"'
+	var result = GUTCheckProbeInjector.wrap_ternary(content, 0, 3, [])
+	assert_string_contains(result, "GUTCheckCollector.hit(0,3);")
+	assert_false(result.contains("br2("), "No branch probes means no br2 wrapping")
+
+
+func test_probe_injector_find_for_in_with_string_containing_in_keyword():
+	# Real ` in ` is found first; the " in " inside the string is never reached.
+	var pos = GUTCheckProbeInjector.find_for_in('for c in "a in b": pass')
+	assert_eq(pos, 5)
+
+
+func test_probe_injector_find_for_in_with_escape_in_string():
+	var pos = GUTCheckProbeInjector.find_for_in('for c in "a\\"b": pass')
+	assert_eq(pos, 5)
+
+
+func test_probe_injector_find_for_in_returns_minus_one_on_no_in():
+	assert_eq(GUTCheckProbeInjector.find_for_in("for x:"), -1)
+
+
+func test_probe_injector_for_in_with_no_in_returns_content_unchanged():
+	# wrap_for_br2 returns content unchanged when find_for_in fails.
+	var result = GUTCheckProbeInjector.wrap_for_br2("for x:", 0, 0, [])
+	assert_eq(result, "for x:")
+
+
+func test_probe_injector_find_block_colon_inside_string_ignored():
+	# A colon inside a string literal must not be treated as block colon.
+	var idx = GUTCheckProbeInjector.find_block_colon('"a:b":')
+	assert_eq(idx, 5, "Block colon should be the one outside the string")
+
+
+func test_probe_injector_find_ternary_if_positions_no_ternary():
+	var positions = GUTCheckProbeInjector.find_ternary_if_positions("var x = 5")
+	assert_eq(positions.size(), 0)
+
+
+func test_probe_injector_get_indent_mixed_whitespace():
+	assert_eq(GUTCheckProbeInjector.get_indent("\t  code"), "\t  ")
+	assert_eq(GUTCheckProbeInjector.get_indent("code"), "")
+
+
+func test_probe_injector_instrument_line_noop_for_non_executable_types():
+	# FUNC_DEF / CLASS_DEF / default cases return the line unchanged.
+	var line = "func foo():"
+	var result = GUTCheckProbeInjector.instrument_line(
+		line, GUTCheckScriptMap.LineType.FUNC_DEF, 0, 0)
+	assert_eq(result, line)
+	var line2 = "class Inner:"
+	var result2 = GUTCheckProbeInjector.instrument_line(
+		line2, GUTCheckScriptMap.LineType.CLASS_DEF, 0, 0)
+	assert_eq(result2, line2)
+
+
+func test_probe_injector_instrument_line_branch_else_returns_line():
+	var line = "\telse:"
+	var result = GUTCheckProbeInjector.instrument_line(
+		line, GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, 0)
+	assert_eq(result, line)
