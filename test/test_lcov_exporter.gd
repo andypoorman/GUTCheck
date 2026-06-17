@@ -26,7 +26,7 @@ func test_basic_lcov_output():
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://test.gd", script_map.probe_count, script_map)
 
@@ -63,7 +63,7 @@ func test_function_records():
 		6, GUTCheckScriptMap.LineType.EXECUTABLE, "my_func")
 	script_map.lines[7] = GUTCheckLineInfo.new(
 		7, GUTCheckScriptMap.LineType.EXECUTABLE, "my_func")
-	script_map.assign_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://test.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -114,8 +114,7 @@ func test_no_branch_records_when_no_branches():
 	script_map.path = "res://test.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://test.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -139,7 +138,7 @@ func test_coverage_collector_summary():
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.lines[3] = GUTCheckLineInfo.new(
 		3, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://test.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -158,8 +157,7 @@ func test_export_lcov_writes_file_to_disk():
 	script_map.path = "res://src/lcov_disk_test.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/lcov_disk_test.gd", script_map.probe_count, script_map)
 

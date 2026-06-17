@@ -39,15 +39,16 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var branches_found: int = script_map.branches.size()
 	var branches_hit := 0
 	for b in script_map.branches:
-		if get_branch_hit_count(b, script_map, hits, context) > 0:
+		if get_branch_hit_count(b, hits) > 0:
 			branches_hit += 1
 
 	# Function coverage
 	var funcs_found: int = script_map.functions.size()
 	var funcs_hit := 0
 	for func_info in script_map.functions:
+		var search_start := function_search_start(func_info)
 		for ln in exec_lines:
-			if ln >= func_info.start_line and (func_info.end_line == -1 or ln <= func_info.end_line):
+			if ln >= search_start and (func_info.end_line == -1 or ln <= func_info.end_line):
 				var fhc := get_line_hit_count(ln, line_probes, hits, branch_line_hits)
 				if fhc > 0:
 					funcs_hit += 1
@@ -182,15 +183,11 @@ static func is_excluded(path: String, patterns: Array) -> bool:
 # -- Shared helpers (used by exporters too) --
 
 static func build_script_context(script_map, hits: PackedInt32Array) -> Dictionary:
-	var line_probes: Dictionary = build_line_probes(script_map)
-	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
-	var body_probe_ids: Dictionary = build_body_probe_ids(script_map, line_probes, exec_lines)
 	return {
 		"script_map": script_map,
-		"line_probes": line_probes,
-		"exec_lines": exec_lines,
-		"body_probe_ids": body_probe_ids,
-		"branch_line_hits": build_branch_line_hits(script_map, hits, body_probe_ids),
+		"line_probes": build_line_probes(script_map),
+		"exec_lines": script_map.get_executable_lines_sorted(),
+		"branch_line_hits": build_branch_line_hits(script_map, hits),
 	}
 
 ## Build a mapping of line_number -> [probe_ids] for a script map.
@@ -223,70 +220,36 @@ static func get_line_hit_count(line_num: int, line_probes: Dictionary, hits: Pac
 ## Build a mapping of line_number -> total branch hits for that line.
 ## Used so branch lines (if/elif/while/for) count as covered even though
 ## the injector fires br2() instead of hit().
-static func build_branch_line_hits(script_map, hits: PackedInt32Array, body_probe_ids: Dictionary = {}) -> Dictionary:
+static func build_branch_line_hits(script_map, hits: PackedInt32Array) -> Dictionary:
 	var result: Dictionary = {}
 	for b in script_map.branches:
-		var h := get_branch_hit_count(b, script_map, hits, {"body_probe_ids": body_probe_ids})
+		var h := get_branch_hit_count(b, hits)
 		if h > 0:
 			result[b.line_number] = result.get(b.line_number, 0) + h
 	return result
 
 
-## Get the hit count for a branch probe, falling back to its body line
-## for compound branches that cannot be instrumented directly.
-static func get_branch_hit_count(branch_info, script_map, hits: PackedInt32Array, context: Dictionary = {}) -> int:
-	var hit_count := 0
-	if branch_info.probe_id < hits.size():
-		hit_count = hits[branch_info.probe_id]
-	if hit_count > 0:
-		return hit_count
-
-	var line_info = script_map.lines.get(branch_info.line_number)
-	if line_info == null:
-		return 0
-	if line_info.type != GUTCheckScriptMap.LineType.BRANCH_ELSE \
-			and line_info.type != GUTCheckScriptMap.LineType.BRANCH_PATTERN:
-		return 0
-
-	var body_probe_ids: Dictionary = context.get("body_probe_ids", {})
-	return derive_body_hits(branch_info.line_number, script_map, hits, body_probe_ids)
-
-
-## Derive hit count for a compound branch (else, match pattern) by looking
-## at the first executable line in its body.
-static func derive_body_hits(branch_line: int, _script_map, hits: PackedInt32Array, body_probe_ids: Dictionary) -> int:
-	var pid: int = body_probe_ids.get(branch_line, -1)
+## Hit count for a branch — just its probe's count. Every branch points at a
+## real injected probe: if/elif/while/for/ternary and inline else/pattern fire
+## their own; a block else:/pattern: has its probe_id bound to the first body
+## line by the allocator (GUTCheckProbeAllocator.resolve_derived). So there is no
+## report-time derivation — a branch is covered iff the probe proving it ran is.
+static func get_branch_hit_count(branch_info, hits: PackedInt32Array) -> int:
+	var pid: int = branch_info.probe_id
 	if pid >= 0 and pid < hits.size():
 		return hits[pid]
 	return 0
 
 
-static func build_body_probe_ids(script_map, line_probes: Dictionary, exec_lines: Array[int]) -> Dictionary:
-	var result: Dictionary = {}
-	var derivable_lines: Array[int] = []
-
-	for branch_info in script_map.branches:
-		var line_info = script_map.lines.get(branch_info.line_number)
-		if line_info == null:
-			continue
-		if line_info.type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
-				or line_info.type == GUTCheckScriptMap.LineType.BRANCH_PATTERN:
-			if not result.has(branch_info.line_number):
-				derivable_lines.append(branch_info.line_number)
-				result[branch_info.line_number] = -1
-
-	derivable_lines.sort()
-	var exec_idx := 0
-	for branch_line in derivable_lines:
-		while exec_idx < exec_lines.size() and exec_lines[exec_idx] <= branch_line:
-			exec_idx += 1
-		if exec_idx >= exec_lines.size():
-			break
-		var body_line: int = exec_lines[exec_idx]
-		if line_probes.has(body_line):
-			result[branch_line] = line_probes[body_line][0]
-
-	return result
+## First line at which to measure a function's execution. For a block-bodied
+## lambda the definition line is shared with the enclosing statement's probe
+## (it fires when the lambda is DEFINED, not called), so measure from the
+## first body line instead. Named functions/accessors start at their def line,
+## which is non-executable anyway, so this is a no-op for them.
+static func function_search_start(func_info) -> int:
+	if String(func_info.name).begins_with("<lambda"):
+		return func_info.start_line + 1
+	return func_info.start_line
 
 
 static func _pct(hit: int, total: int, default_val: float = 0.0) -> float:

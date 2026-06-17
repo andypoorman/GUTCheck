@@ -57,7 +57,7 @@ Create a `.gutcheck.json` file in your project root:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `source_dirs` | `Array[String]` | `["res://"]` | Directories to scan for source scripts to instrument |
-| `exclude_patterns` | `Array[String]` | `["**/test_*.gd", "**/addons/**"]` | Glob patterns for files to exclude from coverage |
+| `exclude_patterns` | `Array[String]` | `["**/test_*.gd", "**/addons/**", "**/autoload/**"]` | Glob patterns for files to exclude from coverage |
 | `lcov_output` | `String` | `"res://coverage.lcov"` | Path to write the LCOV tracefile |
 | `coverage_target` | `float` | `0` | Minimum coverage percentage (0-100). Post-run hook sets exit code 1 if not met |
 | `cobertura_output` | `String` | `""` | Path to write Cobertura XML. Empty string disables Cobertura export |
@@ -133,9 +133,20 @@ match state:                  match GUTCheckCollector.br(0,9,state):
 
 `br2()` records into a true-branch or false-branch probe depending on the condition's truthiness. `br2rng()` does the same for iterable emptiness. `br()` records a single hit. All return the value unchanged, so there's no semantic change to your code.
 
-**Lines that can't be instrumented** are skipped. This includes `func`/`class` definitions, `else:`/match patterns (compound statement headers), `get:`/`set():` property accessors, and top-level class member declarations. Coverage for these is inferred from whether their body lines were hit.
+**`else:` and match patterns** can't have their header wrapped (they're not expressions). When the body is a block, coverage is inferred from the block's first line; when the body is inline (`else: x()` or `"up": return v`), a probe is injected after the colon so the branch only counts when the body actually runs:
+```gdscript
+# Original                    # Instrumented
+else: x()                     else: GUTCheckCollector.hit(0,7);x()
+"up": return v                "up": GUTCheckCollector.hit(0,8);return v
+```
 
-**Semicolon-separated statements** (`var a = 1; var b = 2; var c = 3`) get one probe per statement.
+**Multiline statements** (conditions split across lines with parentheses or `\`) are instrumented as a whole logical statement — the wrapped condition keeps its original line breaks, so line numbers still match your source.
+
+**Property accessors** with block bodies (`get:` / `set(value):`) are tracked as functions and their bodies are instrumented. Inline accessors (`get: return _x`) are excluded from coverage.
+
+**Member variable declarations** (`var health := 100` at class level) are declarations, not statements — a probe there would be a syntax error. They're excluded from line coverage entirely rather than reported as permanently uncovered.
+
+**Semicolon-separated statements** (`var a = 1; var b = 2; var c = 3`) get one probe per statement. Trailing semicolons don't create phantom statements.
 
 ## CI Usage
 
@@ -282,7 +293,8 @@ Early release
 - **Autoloads** - Autoload singletons are instantiated before the pre-run hook fires. Their `_ready()` and any initialization code runs before instrumentation happens, so that code won't be covered. Methods called later during tests will be covered if the autoload script is in `source_dirs`.
 - **`preload()` references** - If script A does `const B = preload("res://b.gd")`, Godot resolves that reference at parse time. The `load()` + `reload()` approach updates the cached script object in place, so preloaded references should pick up the instrumented version. However, if Godot has already compiled and cached the bytecode for A before the hook runs, the reference may point to the original. This has worked in testing but may have edge cases in large projects.
 - **Static variables** - GDScript static variables persist across test runs. GUTCheck's own collector uses static state and clears it between runs, but if your instrumented scripts have static variables, their state carries over as it normally would.
-- **Compilation failures** - Scripts that fail to compile after instrumentation are automatically rolled back and skipped. The original source is restored and a warning is logged.
+- **Typed `for` loops** - Instrumenting a `for` loop wraps its iterable in a collector call, and GDScript can't preserve the iterable's element type through that call — so the loop variable becomes `Variant`. A body that infers a type from it, like `for node in get_children(): var pos := node.position`, then fails to compile (`:=` can't infer from `Variant`). When this happens GUTCheck automatically retries the file with conservative instrumentation (the `for` headers are left un-instrumented and excluded from coverage) so the rest of the file is still measured.
+- **Compilation failures** - If instrumentation still produces source that won't compile after the conservative retry, the script is rolled back and skipped: the original source is restored and a warning is logged.
 - **Performance** - Each instrumented line adds one static function call. Each branch point adds one call that checks truthiness. Should be negligible for test runs but hasn't been benchmarked beyond ~50 scripts w/ ~900 tests.
 
 ## License

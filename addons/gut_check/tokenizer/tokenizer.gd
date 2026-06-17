@@ -149,8 +149,12 @@ func _tokenize_line(line_idx: int) -> void:
 		# Unknown character - skip it
 		pos += 1
 
-	# End of line
-	if not _continuation:
+	# End of line. If we just entered a multiline (triple-quoted) string, the
+	# statement continues into it — don't end the logical line here, or the
+	# string's closing line would be classified as its own executable line and
+	# get a probe injected inside the literal. The closing line emits the
+	# terminating NEWLINE once the string ends.
+	if not _continuation and not _in_multiline_string:
 		_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.NEWLINE, "", line_num, 0))
 
 

@@ -13,6 +13,7 @@ const DEFAULT_CONFIG := {
 	"exclude_patterns": ["**/test_*.gd", "**/addons/**", "**/autoload/**"],
 	"lcov_output": "res://coverage.lcov",
 	"coverage_target": 0.0,
+	"cobertura_output": "",
 }
 
 var _config: Dictionary = {}
@@ -380,9 +381,17 @@ func _prepare_file(path: String) -> Dictionary:
 
 	var result: GUTCheckInstrumentResult
 	result = _instrumenter.instrument(source, script_id, path)
-	if result == null or result.probe_count == 0:
-		push_warning("GUTCheck: Instrumentation produced no probes for: %s (skipping)" % path)
+	if result == null:
+		push_warning("GUTCheck: Instrumentation failed for: %s (skipping)" % path)
 		_skipped_scripts.append(path)
+		return {}
+
+	# A script with no instrumentable lines (e.g. a declaration-only data
+	# class: only var/const/signal/enum members) legitimately yields zero
+	# probes. Register it so it still appears in coverage output as having
+	# no coverable lines — don't treat it as a failure or reload it.
+	if result.probe_count == 0:
+		GUTCheckCollector.register_script(script_id, path, 0, result.script_map)
 		return {}
 
 	# Get the cached GDScript object — don't reload yet.
@@ -407,15 +416,36 @@ func _reload_file(entry: Dictionary) -> void:
 	var path: String = entry.path
 	var script: GDScript = entry.script
 	var original_source: String = script.source_code
+
 	script.source_code = entry.source
-	var reload_result: int = script.reload()
-	if reload_result != OK:
-		push_warning("GUTCheck: Failed to compile instrumented script: %s (error %d, skipping)" % [path, reload_result])
-		script.source_code = original_source
-		script.reload()
-		_skipped_scripts.append(path)
+	if script.reload() == OK:
+		GUTCheckCollector.register_script(
+			entry.script_id, path, entry.probe_count, entry.script_map)
 		return
 
-	# Register with collector only after successful reload
-	GUTCheckCollector.register_script(
-		entry.script_id, path, entry.probe_count, entry.script_map)
+	# The fully-instrumented source didn't compile. The usual culprit is a
+	# `for x in typed: var y := x.foo()` whose loop var was widened to Variant
+	# by iterable wrapping (GDScript can't infer `:=` from Variant). Retry with
+	# conservative instrumentation (for-loop headers left raw) so the file keeps
+	# all its other coverage instead of rolling back entirely.
+	#
+	# Skip the retry for GUTCheck's own scripts: re-instrumenting needs a fresh
+	# instrumenter instance, and creating one mid self-instrumentation could
+	# block reloading the instrumenter script. (Our own source compiles, so it
+	# never reaches here in practice.)
+	if "addons/gut_check/" not in path:
+		var retry := GUTCheckInstrumenter.new().instrument(
+			original_source, entry.script_id, path, true)
+		if retry != null and retry.probe_count > 0:
+			script.source_code = retry.source
+			if script.reload() == OK:
+				push_warning("GUTCheck: %s — used conservative instrumentation (for-loop headers excluded) to avoid a compile failure" % path)
+				GUTCheckCollector.register_script(
+					entry.script_id, path, retry.probe_count, retry.script_map)
+				return
+
+	# Still failing — restore the original source and skip the file.
+	push_warning("GUTCheck: Failed to compile instrumented script: %s (skipping)" % path)
+	script.source_code = original_source
+	script.reload()
+	_skipped_scripts.append(path)

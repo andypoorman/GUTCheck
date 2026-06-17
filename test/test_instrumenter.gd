@@ -234,9 +234,71 @@ func test_ternary_condition_wrapped_correctly():
 	var line2 = result.source.split("\n")[1]
 	# The condition "cond" should be inside br2(), not outside
 	assert_string_contains(line2, "br2(0,")
-	assert_string_contains(line2, ",cond)")
+	assert_string_contains(line2, ", cond )")
 	# The else keyword should still be present after the wrapped condition
 	assert_string_contains(line2, ') else "no"')
+
+
+# ---------------------------------------------------------------------------
+# Multiline compound headers — wrapped across physical lines
+# ---------------------------------------------------------------------------
+
+func test_multiline_paren_if_wrapped_across_lines():
+	var source = "func f(a, b):\n\tif (a\n\t\t\tand b):\n\t\treturn 1\n\treturn 0"
+	var result = _instrumenter.instrument(source, 0)
+	var out_lines = result.source.split("\n")
+	assert_eq(out_lines.size(), 5, "Line count preserved")
+	assert_string_contains(out_lines[1], "GUTCheckCollector.hit_br2(")
+	assert_string_contains(out_lines[2], "and b)):")
+
+
+func test_multiline_backslash_if_wrapped_across_lines():
+	var source = "func f(a, b):\n\tif a \\\n\t\t\tand b:\n\t\treturn 1\n\treturn 0"
+	var result = _instrumenter.instrument(source, 0)
+	var out_lines = result.source.split("\n")
+	assert_eq(out_lines.size(), 5, "Line count preserved")
+	assert_string_contains(out_lines[1], "GUTCheckCollector.hit_br2(")
+	assert_string_contains(out_lines[2], "and b):")
+
+
+func test_multiline_for_wrapped_across_lines():
+	var source = "func f(n):\n\tfor x in (\n\t\t\trange(n)):\n\t\tprint(x)"
+	var result = _instrumenter.instrument(source, 0)
+	var out_lines = result.source.split("\n")
+	assert_eq(out_lines.size(), 4, "Line count preserved")
+	assert_string_contains(out_lines[1], "GUTCheckCollector.hit_br2rng(")
+
+
+func test_multiline_ternary_wrapped_across_lines():
+	var source = 'func f(c):\n\tvar r = ("yes" if c\n\t\t\telse "no")\n\treturn r'
+	var result = _instrumenter.instrument(source, 0)
+	var out_lines = result.source.split("\n")
+	assert_eq(out_lines.size(), 4, "Line count preserved")
+	assert_string_contains(out_lines[1], "GUTCheckCollector.br2(")
+
+
+func test_comment_with_colon_does_not_corrupt_header():
+	var source = "func f(x):\n\tif x > 0:  # note: positive\n\t\treturn 1\n\treturn 0"
+	var result = _instrumenter.instrument(source, 0)
+	var line2 = result.source.split("\n")[1]
+	assert_string_contains(line2, "GUTCheckCollector.hit_br2(")
+	assert_string_contains(line2, ",x > 0):  # note: positive")
+
+
+func test_inline_else_body_gets_probe():
+	var source = "func f(a):\n\tif a:\n\t\treturn 1\n\telse: return 2"
+	var result = _instrumenter.instrument(source, 0)
+	var line4 = result.source.split("\n")[3]
+	assert_string_contains(line4, "else: GUTCheckCollector.hit(")
+	assert_string_contains(line4, ";return 2")
+
+
+func test_inline_match_arm_gets_probe():
+	var source = 'func f(x):\n\tmatch x:\n\t\t1: return "one"\n\t\t_: return "other"'
+	var result = _instrumenter.instrument(source, 0)
+	var out_lines = result.source.split("\n")
+	assert_string_contains(out_lines[2], '1: GUTCheckCollector.hit(')
+	assert_string_contains(out_lines[3], '_: GUTCheckCollector.hit(')
 
 
 # ---------------------------------------------------------------------------
@@ -263,8 +325,9 @@ func test_probe_injector_ternary_without_probes_falls_back_to_hit():
 	# Ternary line with zero branch probes — wrap_ternary must emit a plain
 	# hit() call and skip br2 wrapping.
 	var content = 'return "yes" if x else "no"'
-	var result = GUTCheckProbeInjector.wrap_ternary(content, 0, 3, [])
-	assert_string_contains(result, "GUTCheckCollector.hit(0,3);")
+	var alloc = GUTCheckProbeAllocator.new()
+	var result = GUTCheckProbeInjector.wrap_ternary(content, 0, alloc, [])
+	assert_string_contains(result, "GUTCheckCollector.hit(0,0);")
 	assert_false(result.contains("br2("), "No branch probes means no br2 wrapping")
 
 
@@ -285,7 +348,8 @@ func test_probe_injector_find_for_in_returns_minus_one_on_no_in():
 
 func test_probe_injector_for_in_with_no_in_returns_content_unchanged():
 	# wrap_for_br2 returns content unchanged when find_for_in fails.
-	var result = GUTCheckProbeInjector.wrap_for_br2("for x:", 0, 0, [])
+	var alloc = GUTCheckProbeAllocator.new()
+	var result = GUTCheckProbeInjector.wrap_for_br2("for x:", 0, alloc, [])
 	assert_eq(result, "for x:")
 
 
@@ -307,18 +371,20 @@ func test_probe_injector_get_indent_mixed_whitespace():
 
 func test_probe_injector_instrument_line_noop_for_non_executable_types():
 	# FUNC_DEF / CLASS_DEF / default cases return the line unchanged.
+	var alloc = GUTCheckProbeAllocator.new()
 	var line = "func foo():"
 	var result = GUTCheckProbeInjector.instrument_line(
-		line, GUTCheckScriptMap.LineType.FUNC_DEF, 0, 0)
+		line, GUTCheckScriptMap.LineType.FUNC_DEF, 0, alloc)
 	assert_eq(result, line)
 	var line2 = "class Inner:"
 	var result2 = GUTCheckProbeInjector.instrument_line(
-		line2, GUTCheckScriptMap.LineType.CLASS_DEF, 0, 0)
+		line2, GUTCheckScriptMap.LineType.CLASS_DEF, 0, alloc)
 	assert_eq(result2, line2)
 
 
 func test_probe_injector_instrument_line_branch_else_returns_line():
 	var line = "\telse:"
+	var alloc = GUTCheckProbeAllocator.new()
 	var result = GUTCheckProbeInjector.instrument_line(
-		line, GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, 0)
+		line, GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, alloc)
 	assert_eq(result, line)
