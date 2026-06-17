@@ -28,8 +28,7 @@ func test_basic_cobertura_output():
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/player.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -59,8 +58,7 @@ func test_function_records_in_cobertura():
 		5, GUTCheckScriptMap.LineType.FUNC_DEF, "my_func")
 	script_map.lines[6] = GUTCheckLineInfo.new(
 		6, GUTCheckScriptMap.LineType.EXECUTABLE, "my_func")
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://test.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -99,8 +97,7 @@ func test_xml_escaping():
 	script_map.path = 'res://src/my&script.gd'
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, 'res://src/my&script.gd', script_map.probe_count, script_map)
 
@@ -116,8 +113,7 @@ func test_export_cobertura_writes_file_to_disk():
 	script_map.path = "res://src/disk_test.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/disk_test.gd", script_map.probe_count, script_map)
 
@@ -147,8 +143,7 @@ func test_source_root_emits_sources_element():
 	script_map.path = "res://src/source_root_test.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/source_root_test.gd", script_map.probe_count, script_map)
 
@@ -165,8 +160,7 @@ func test_no_source_root_omits_sources_element():
 	script_map.path = "res://src/no_root_test.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/no_root_test.gd", script_map.probe_count, script_map)
 
@@ -183,8 +177,7 @@ func test_script_with_no_functions_emits_empty_methods():
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/no_funcs.gd", script_map.probe_count, script_map)
 
@@ -202,8 +195,7 @@ func test_script_with_no_branches_reports_zero_branch_rate():
 	script_map.path = "res://src/no_branches.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/no_branches.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -230,8 +222,7 @@ func test_function_with_inner_class_prefix():
 		10, GUTCheckScriptMap.LineType.FUNC_DEF, "my_method", "InnerClass")
 	script_map.lines[11] = GUTCheckLineInfo.new(
 		11, GUTCheckScriptMap.LineType.EXECUTABLE, "my_method", "InnerClass")
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/inner_cls.gd", script_map.probe_count, script_map)
 
@@ -254,8 +245,7 @@ func test_branch_condition_elements_emitted():
 		3, GUTCheckScriptMap.LineType.BRANCH_ELSE)
 	script_map.lines[4] = GUTCheckLineInfo.new(
 		4, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 	# Probe layout: 0=line1 exec, 1=line2 exec, 2=line4 exec,
 	#               3=if-true, 4=if-false, 5=else
 
@@ -282,14 +272,12 @@ func test_multiple_packages_sorted_by_directory():
 	var map_a = GUTCheckScriptMap.new()
 	map_a.path = "res://z_dir/z_script.gd"
 	map_a.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	map_a.assign_probes()
-	map_a.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(map_a)
 
 	var map_b = GUTCheckScriptMap.new()
 	map_b.path = "res://a_dir/a_script.gd"
 	map_b.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	map_b.assign_probes()
-	map_b.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(map_b)
 
 	GUTCheckCollector.register_script(0, "res://z_dir/z_script.gd", map_a.probe_count, map_a)
 	GUTCheckCollector.register_script(1, "res://a_dir/a_script.gd", map_b.probe_count, map_b)
@@ -309,8 +297,7 @@ func test_root_level_script_uses_dot_package_name():
 	script_map.path = "res://root_script.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://root_script.gd", script_map.probe_count, script_map)
 
@@ -329,8 +316,7 @@ func test_partial_branch_coverage_percentage():
 		1, GUTCheckScriptMap.LineType.BRANCH_IF)
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 	# Probe layout: 0=line1 exec, 1=line2 exec, 2=if-true branch, 3=if-false branch
 
 	GUTCheckCollector.register_script(0, "res://src/partial_branch.gd", script_map.probe_count, script_map)
@@ -356,8 +342,7 @@ func test_branch_line_uses_branch_hits_for_line_coverage():
 		1, GUTCheckScriptMap.LineType.BRANCH_IF)
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/branch_line_hits.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -385,8 +370,7 @@ func test_function_with_open_ended_end_line():
 		6, GUTCheckScriptMap.LineType.EXECUTABLE, "open_func")
 	script_map.lines[7] = GUTCheckLineInfo.new(
 		7, GUTCheckScriptMap.LineType.EXECUTABLE, "open_func")
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/open_func.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
@@ -408,8 +392,7 @@ func test_export_cobertura_with_source_root_writes_to_disk():
 	script_map.path = "res://src/disk_src.gd"
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/disk_src.gd", script_map.probe_count, script_map)
 
@@ -428,31 +411,48 @@ func test_export_cobertura_with_source_root_writes_to_disk():
 
 
 func test_else_branch_derives_hits_from_body():
-	# Test the derive_body_hits path in _get_branch_data_for_line
+	# A block else: gets no probe of its own — the allocator binds its probe_id
+	# to the first body line, so the else is covered iff that line ran.
+	# indent_level must be set so resolve_derived accepts the body (deeper) as
+	# belonging to the else block — otherwise binding is correctly refused and
+	# this test would only pass vacuously.
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://src/else_derive.gd"
 
 	script_map.lines[1] = GUTCheckLineInfo.new(
 		1, GUTCheckScriptMap.LineType.BRANCH_IF)
+	script_map.lines[1].indent_level = 0
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
+	script_map.lines[2].indent_level = 1
 	script_map.lines[3] = GUTCheckLineInfo.new(
 		3, GUTCheckScriptMap.LineType.BRANCH_ELSE)
+	script_map.lines[3].indent_level = 0
 	script_map.lines[4] = GUTCheckLineInfo.new(
 		4, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
-	# Probe layout: 0=line1 exec, 1=line2 exec, 2=line4 exec,
-	#               3=if-true, 4=if-false, 5=else
+	script_map.lines[4].indent_level = 1
+	GUTCheckProbeAllocator.assign_all(script_map)
+	# Probe layout: 0=line1 exec, 1=line2 exec, 2=line4 exec, 3=if-true,
+	#               4=if-false. The else branch has no probe of its own — its
+	#               probe_id is bound to line 4's probe (2).
 
 	GUTCheckCollector.register_script(0, "res://src/else_derive.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()
-	# Hit exec lines but NOT the else branch probe (5) directly
 	GUTCheckCollector.hit(0, 0)  # line 1 exec (if line)
 	GUTCheckCollector.hit(0, 1)  # line 2 exec (if body)
-	GUTCheckCollector.hit(0, 2)  # line 4 exec (else body -- used for derivation)
-	# Don't hit probe 5 (else branch probe) -- let it derive from body
+	GUTCheckCollector.hit(0, 2)  # line 4 exec (else body) — also IS the else branch probe
 	GUTCheckCollector.disable()
+
+	# The else branch must be counted as covered via its body line probe.
+	var hits: PackedInt32Array = GUTCheckCollector.get_hits()[0]
+	var else_branch = null
+	for b in script_map.branches:
+		if b.line_number == 3:
+			else_branch = b
+	assert_not_null(else_branch, "else branch should exist")
+	assert_eq(
+		GUTCheckCoverageComputer.get_branch_hit_count(else_branch, hits),
+		1, "else branch's probe is bound to the indented body line")
 
 	var exporter = GUTCheckCoberturaExporter.new()
 	var xml = exporter.generate_cobertura()
@@ -470,8 +470,7 @@ func test_all_lines_covered_produces_rate_one():
 		1, GUTCheckScriptMap.LineType.EXECUTABLE)
 	script_map.lines[2] = GUTCheckLineInfo.new(
 		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.assign_probes()
-	script_map.assign_branch_probes()
+	GUTCheckProbeAllocator.assign_all(script_map)
 
 	GUTCheckCollector.register_script(0, "res://src/full_cov.gd", script_map.probe_count, script_map)
 	GUTCheckCollector.enable()

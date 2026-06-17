@@ -64,24 +64,16 @@ func get_function_for_line(line_num: int):
 	return _cached_functions_by_line.get(line_num, null)
 
 
-func assign_probes() -> void:
-	probe_count = 0
-	probe_to_line.clear()
-	_mark_caches_dirty()
-	var sorted_lines := get_executable_lines_sorted()
-	for line_num in sorted_lines:
-		var info = lines[line_num]
-		# Allocate one probe per statement on this line
-		for _s in range(info.statement_count):
-			probe_to_line[probe_count] = line_num
-			probe_count += 1
-	# Branch probes are allocated after line probes by assign_branch_probes()
-
-
-## Allocate probe IDs for branch coverage. Must be called after assign_probes()
-## so that branch probes don't collide with line probes. Each if/elif/while
-## condition gets 2 probes (true/false). Match patterns get 1 probe each.
-func assign_branch_probes() -> void:
+## Derive the branch STRUCTURE (`branches[]`) from the classified lines, with
+## NO probe IDs assigned (each GUTCheckBranchInfo gets probe_id = -1). Branch
+## structure — which lines are branches and how if/elif/else and match arms
+## group into decision blocks — is a property of the source, so the map can
+## derive it. Probe *identity* is not: that is assigned later, in exactly one
+## place, by GUTCheckProbeAllocator (incrementally at injection, or in batch via
+## assign_all() for hand-built maps). Append order is true-before-false per
+## condition, line-sorted, so a sequential numbering pass reproduces the
+## canonical layout.
+func build_branches() -> void:
 	_mark_caches_dirty()
 	branches.clear()
 	var next_block_id := 0
@@ -105,15 +97,9 @@ func assign_branch_probes() -> void:
 				current_if_block = next_block_id
 				next_block_id += 1
 				current_if_branch = 0
-				# True branch probe
-				var true_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, true_pid, true))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, -1, true))
 				current_if_branch += 1
-				# False branch probe
-				var false_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, false_pid, false))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, -1, false))
 				current_if_branch += 1
 
 			LineType.BRANCH_ELIF:
@@ -122,15 +108,9 @@ func assign_branch_probes() -> void:
 					current_if_block = next_block_id
 					next_block_id += 1
 					current_if_branch = 0
-				# True branch
-				var true_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, true_pid, true))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, -1, true))
 				current_if_branch += 1
-				# False branch
-				var false_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, false_pid, false))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, -1, false))
 				current_if_branch += 1
 
 			LineType.BRANCH_ELSE:
@@ -138,31 +118,21 @@ func assign_branch_probes() -> void:
 					current_if_block = next_block_id
 					next_block_id += 1
 					current_if_branch = 0
-				var pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, pid, true))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, current_if_block, current_if_branch, -1, true))
 				current_if_branch += 1
 
 			LineType.LOOP_WHILE:
 				var block := next_block_id
 				next_block_id += 1
-				var true_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, block, 0, true_pid, true))
-				probe_count += 1
-				var false_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, block, 1, false_pid, false))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 0, -1, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 1, -1, false))
 				current_if_block = -1
 
 			LineType.LOOP_FOR:
 				var block := next_block_id
 				next_block_id += 1
-				var true_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, block, 0, true_pid, true))
-				probe_count += 1
-				var false_pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, block, 1, false_pid, false))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 0, -1, true))
+				branches.append(GUTCheckBranchInfo.new(line_num, block, 1, -1, false))
 				current_if_block = -1
 
 			LineType.BRANCH_MATCH:
@@ -176,9 +146,7 @@ func assign_branch_probes() -> void:
 					current_match_block = next_block_id
 					next_block_id += 1
 					current_match_branch = 0
-				var pid := probe_count
-				branches.append(GUTCheckBranchInfo.new(line_num, current_match_block, current_match_branch, pid, true))
-				probe_count += 1
+				branches.append(GUTCheckBranchInfo.new(line_num, current_match_block, current_match_branch, -1, true))
 				current_match_branch += 1
 
 			LineType.EXECUTABLE_TERNARY:
@@ -186,12 +154,8 @@ func assign_branch_probes() -> void:
 				for _t in range(info.ternary_count):
 					var block := next_block_id
 					next_block_id += 1
-					var true_pid := probe_count
-					branches.append(GUTCheckBranchInfo.new(line_num, block, 0, true_pid, true))
-					probe_count += 1
-					var false_pid := probe_count
-					branches.append(GUTCheckBranchInfo.new(line_num, block, 1, false_pid, false))
-					probe_count += 1
+					branches.append(GUTCheckBranchInfo.new(line_num, block, 0, -1, true))
+					branches.append(GUTCheckBranchInfo.new(line_num, block, 1, -1, false))
 				current_if_block = -1
 
 			_:

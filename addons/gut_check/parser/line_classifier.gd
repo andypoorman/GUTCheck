@@ -20,8 +20,9 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 	# Lines at match_indent + 1 that look like patterns are BRANCH_PATTERN.
 	var match_indent_stack: Array[int] = []
 
-	# Property accessor tracking: indent level of a var with get/set block
-	var property_indent_stack: Array[int] = []
+	# Property accessor tracking: stack of {indent: int, name: String} for
+	# vars with a get/set block. The name is used to label accessor scopes.
+	var property_indent_stack: Array = []
 
 	var pending_static: bool = false
 
@@ -36,7 +37,7 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 			while match_indent_stack.size() > 0 and indent_level <= match_indent_stack.back():
 				match_indent_stack.pop_back()
 			# Pop property scopes that ended
-			while property_indent_stack.size() > 0 and indent_level <= property_indent_stack.back():
+			while property_indent_stack.size() > 0 and indent_level <= property_indent_stack.back().indent:
 				property_indent_stack.pop_back()
 			continue
 
@@ -76,15 +77,18 @@ func classify(tokens: Array, script_path: String = "") -> GUTCheckScriptMap:
 	var last_line: int = tokens.back().line if tokens.size() > 0 else 0
 	_close_scopes_at_indent(-1, func_stack, class_stack, last_line)
 
-	map.assign_probes()
-	map.assign_branch_probes()
+	# Structure only: derive which lines are branches and how they group into
+	# decision blocks. Probe IDs are NOT assigned here — that is the injector's
+	# job (GUTCheckProbeAllocator), so a probe exists only because a collector
+	# call was emitted for it.
+	map.build_branches()
 	return map
 
 
 func _finalize_current_line(map: GUTCheckScriptMap, current_line_tokens: Array,
 		first_token_line: int, newline_token_line: int, paren_depth: int,
 		pending_static: bool, match_indent_stack: Array[int],
-		property_indent_stack: Array[int], indent_level: int,
+		property_indent_stack: Array, indent_level: int,
 		func_stack: Array, class_stack: Array) -> Dictionary:
 	var line_type = _classify_tokens(
 		current_line_tokens, pending_static,
@@ -92,13 +96,16 @@ func _finalize_current_line(map: GUTCheckScriptMap, current_line_tokens: Array,
 	var scope_names := _get_scope_names(func_stack, class_stack)
 
 	if paren_depth > 0:
+		# Mid-statement newline (bracket continuation). Record a provisional
+		# entry for the first line and mark this physical line as a
+		# continuation. Scope entry is deferred until the statement completes
+		# so multiline signatures don't register their function twice.
 		if not map.lines.has(first_token_line):
-			map.lines[first_token_line] = GUTCheckLineInfo.new(
+			var partial = GUTCheckLineInfo.new(
 				first_token_line, line_type, scope_names.func_name, scope_names.cls_name)
-			_handle_scope_entry(current_line_tokens, first_token_line,
-				indent_level, pending_static, func_stack, class_stack,
-				match_indent_stack, property_indent_stack, map)
-			pending_static = _check_static(current_line_tokens)
+			partial.indent_level = indent_level
+			map.lines[first_token_line] = partial
+		map.lines[first_token_line].last_physical_line = newline_token_line
 		if newline_token_line != first_token_line and not map.lines.has(newline_token_line):
 			map.lines[newline_token_line] = GUTCheckLineInfo.new(
 				newline_token_line, GUTCheckScriptMap.LineType.CONTINUATION,
@@ -109,14 +116,30 @@ func _finalize_current_line(map: GUTCheckScriptMap, current_line_tokens: Array,
 			"first_token_line": first_token_line,
 		}
 
+	# Class-body statements (member var declarations, including ternary
+	# initializers) run outside any callable scope, where a statement probe
+	# would be a syntax error. Exclude them from coverage instead of
+	# reporting permanent zeros.
+	if line_type == GUTCheckScriptMap.LineType.EXECUTABLE and scope_names.func_name == "":
+		line_type = GUTCheckScriptMap.LineType.NON_EXECUTABLE
+
 	var info = GUTCheckLineInfo.new(
 		first_token_line, line_type, scope_names.func_name, scope_names.cls_name)
+	info.indent_level = indent_level
+	info.last_physical_line = newline_token_line
 	info.statement_count = _count_statements(current_line_tokens)
 	if line_type == GUTCheckScriptMap.LineType.EXECUTABLE:
 		var ternary_count := _count_ternary_expressions(current_line_tokens)
 		if ternary_count > 0:
 			info.ternary_count = ternary_count
 			info.type = GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY
+			# wrap_ternary injects exactly one line probe, so keep the
+			# allocation at one — extra per-statement probes would never
+			# fire and pin the line at zero hits.
+			info.statement_count = 1
+	elif line_type == GUTCheckScriptMap.LineType.BRANCH_ELSE \
+			or line_type == GUTCheckScriptMap.LineType.BRANCH_PATTERN:
+		info.has_inline_body = _has_tokens_after_block_colon(current_line_tokens)
 	map.lines[first_token_line] = info
 	_handle_scope_entry(current_line_tokens, first_token_line,
 		indent_level, pending_static, func_stack, class_stack,
@@ -137,7 +160,7 @@ func _get_scope_names(func_stack: Array, class_stack: Array) -> Dictionary:
 
 
 func _classify_tokens(tokens: Array, preceded_by_static: bool,
-		match_indent_stack: Array[int], property_indent_stack: Array[int],
+		match_indent_stack: Array[int], property_indent_stack: Array,
 		indent_level: int) -> GUTCheckScriptMap.LineType:
 	if tokens.size() == 0:
 		return GUTCheckScriptMap.LineType.NON_EXECUTABLE
@@ -189,7 +212,7 @@ func _classify_tokens(tokens: Array, preceded_by_static: bool,
 
 	# Check if we're inside a property block — detect get:/set(value):
 	if property_indent_stack.size() > 0:
-		var prop_indent: int = property_indent_stack.back()
+		var prop_indent: int = property_indent_stack.back().indent
 		if indent_level == prop_indent + 1:
 			if _is_property_accessor(tokens):
 				return GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR
@@ -250,10 +273,14 @@ func _is_match_pattern(tokens: Array) -> bool:
 
 	var first = tokens[0]
 
-	# Control flow keywords at this indent inside a match are not patterns
+	# Control flow keywords at this indent inside a match are not patterns.
+	# KW_VAR is intentionally absent: `var v:` / `var v when v > 0:` are
+	# binding patterns. This check only runs at match-pattern indent (the
+	# caller gates on indent_level == match_indent + 1), so a `var` here can
+	# only be a binding pattern, never an ordinary declaration.
 	if first.type in [
 		GUTCheckToken.Type.KW_IF, GUTCheckToken.Type.KW_FOR,
-		GUTCheckToken.Type.KW_WHILE, GUTCheckToken.Type.KW_VAR,
+		GUTCheckToken.Type.KW_WHILE,
 		GUTCheckToken.Type.KW_FUNC, GUTCheckToken.Type.KW_CLASS,
 		GUTCheckToken.Type.KW_RETURN, GUTCheckToken.Type.KW_PASS,
 		GUTCheckToken.Type.KW_BREAK, GUTCheckToken.Type.KW_CONTINUE,
@@ -319,18 +346,29 @@ func _count_ternary_expressions(tokens: Array) -> int:
 
 
 func _count_statements(tokens: Array) -> int:
-	## Count semicolon-separated statements on a line.
+	## Count semicolon-separated statements on a line, ignoring empty
+	## segments so a trailing semicolon (`do_thing();`) doesn't allocate a
+	## probe the injector never places.
 	## Only counts semicolons at depth 0 (not inside parens/brackets/braces).
-	var count := 1
+	var count := 0
 	var depth := 0
+	var segment_has_tokens := false
 	for t in tokens:
 		if t.is_open_group():
 			depth += 1
+			segment_has_tokens = true
 		elif t.is_close_group():
 			depth = maxi(0, depth - 1)
+			segment_has_tokens = true
 		elif t.type == GUTCheckToken.Type.SEMICOLON and depth == 0:
-			count += 1
-	return count
+			if segment_has_tokens:
+				count += 1
+			segment_has_tokens = false
+		else:
+			segment_has_tokens = true
+	if segment_has_tokens:
+		count += 1
+	return maxi(count, 1)
 
 
 func _check_static(tokens: Array) -> bool:
@@ -338,25 +376,22 @@ func _check_static(tokens: Array) -> bool:
 
 
 func _has_trailing_colon_after_type(tokens: Array) -> bool:
-	## Checks if a var declaration has a trailing colon that introduces a
-	## get/set property block. Pattern: var name: Type:  (two colons)
-	## or: var name = value:  (unusual but valid)
-	var colon_count := 0
-	for t in tokens:
-		if t.type == GUTCheckToken.Type.COLON:
-			colon_count += 1
-	# A var with get/set has at least 2 colons: one for the type hint, one for the block
-	# Or if no type hint, just one trailing colon after the value/declaration
-	if colon_count >= 2:
-		var last = tokens[tokens.size() - 1]
-		return last.type == GUTCheckToken.Type.COLON
-	return false
+	## Checks if a var declaration ends with a colon that introduces a get/set
+	## property block. A trailing colon is the only thing that does this, in
+	## every form:
+	##   var name: Type:      (type hint + block — two colons)
+	##   var name := v:        (inferred + block)
+	##   var name = value:     (untyped + block — one colon)
+	## NEWLINE/COMMENT tokens are never in this list, so the last token is the
+	## last real token on the declaration.
+	return tokens.size() > 0 \
+		and tokens[tokens.size() - 1].type == GUTCheckToken.Type.COLON
 
 
 func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		preceded_by_static: bool, func_stack: Array,
 		class_stack: Array, match_indent_stack: Array[int],
-		property_indent_stack: Array[int], map: GUTCheckScriptMap) -> void:
+		property_indent_stack: Array, map: GUTCheckScriptMap) -> void:
 	if tokens.size() == 0:
 		return
 
@@ -410,7 +445,23 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 	elif kw.type == GUTCheckToken.Type.KW_VAR:
 		# Check if this var introduces a property block (trailing colon for get/set)
 		if _has_trailing_colon_after_type(tokens):
-			property_indent_stack.append(indent)
+			var prop_name := ""
+			if kw_idx + 1 < tokens.size() and tokens[kw_idx + 1].type == GUTCheckToken.Type.IDENTIFIER:
+				prop_name = tokens[kw_idx + 1].value
+			property_indent_stack.append({"indent": indent, "name": prop_name})
+
+	elif kw.type == GUTCheckToken.Type.IDENTIFIER \
+			and _is_block_property_accessor(tokens, indent, property_indent_stack):
+		# get:/set(value): with a block body act like functions for coverage:
+		# register a scope so body lines are attributed and instrumented.
+		var prop: Dictionary = property_indent_stack.back()
+		var fname: String = kw.value
+		if not String(prop.name).is_empty():
+			fname = "%s.%s" % [prop.name, kw.value]
+		var accessor_cls: String = class_stack.back().name if class_stack.size() > 0 else ""
+		var accessor_info = GUTCheckFunctionInfo.new(fname, line_num, accessor_cls, false, indent)
+		func_stack.append(accessor_info)
+		map.functions.append(accessor_info)
 
 	# Detect inline lambdas on non-function lines (e.g. `var fn = func(x):`).
 	# Named function declarations (kw == KW_FUNC) are already handled above,
@@ -422,26 +473,89 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 
 func _detect_inline_lambdas(tokens: Array, line_num: int, indent: int, func_stack: Array,
 		class_stack: Array, map: GUTCheckScriptMap) -> void:
-	## Scan a token list for inline lambda definitions (func( without a name).
-	## Creates synthetic function entries with "<lambda>" names so they appear
-	## in LCOV function coverage output.
+	## Scan a token list for block-bodied inline lambda definitions (func(
+	## without a name) and register them so they appear in function coverage.
+	##
+	## Inline-bodied lambdas (`func(x): return x`, including bracket-nested
+	## `arr.map(func(x): ...)`) are intentionally NOT registered: their body
+	## shares the definition line, which already carries the enclosing
+	## statement's probe, so we cannot tell "invoked" from "merely defined".
+	## Reporting them would count a never-called lambda as covered, so we omit
+	## them rather than emit a false positive.
 	var lambda_count := 0
+	var depth := 0
 	for i in range(tokens.size() - 1):
-		if tokens[i].type == GUTCheckToken.Type.KW_FUNC:
-			# Named function: func name( — skip, already handled
-			if tokens[i + 1].type == GUTCheckToken.Type.IDENTIFIER:
-				continue
-			# Lambda: func( or func() — no name before paren
-			if tokens[i + 1].type == GUTCheckToken.Type.PAREN_OPEN:
-				lambda_count += 1
-				var lambda_name := "<lambda:%d:%d>" % [line_num, lambda_count]
-				var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
-				var info := GUTCheckFunctionInfo.new(lambda_name, line_num, cls_name, false, indent)
-				# Lambda scopes end on the same line for single-line lambdas.
-				# Multi-line lambdas will get their end_line updated by
-				# _close_scopes_at_indent when a DEDENT is encountered.
-				func_stack.append(info)
-				map.functions.append(info)
+		var t = tokens[i]
+		if t.is_open_group():
+			depth += 1
+		elif t.is_close_group():
+			depth = maxi(0, depth - 1)
+		if t.type != GUTCheckToken.Type.KW_FUNC:
+			continue
+		# Named function: func name( — skip, already handled
+		if tokens[i + 1].type == GUTCheckToken.Type.IDENTIFIER:
+			continue
+		# Lambda: func( or func() — no name before paren
+		if tokens[i + 1].type != GUTCheckToken.Type.PAREN_OPEN:
+			continue
+		if _lambda_body_is_inline(tokens, i, depth):
+			continue  # unmeasurable — see method doc
+		lambda_count += 1
+		var lambda_name := "<lambda:%d:%d>" % [line_num, lambda_count]
+		var cls_name: String = class_stack.back().name if class_stack.size() > 0 else ""
+		var info := GUTCheckFunctionInfo.new(lambda_name, line_num, cls_name, false, indent)
+		map.functions.append(info)
+		# Block-bodied lambda: body lines follow at deeper indent and will be
+		# attributed to this scope until the DEDENT closes it.
+		func_stack.append(info)
+
+
+func _lambda_body_is_inline(tokens: Array, func_idx: int, depth_at_func: int) -> bool:
+	## A lambda's block colon is the first COLON at the same group depth as
+	## its `func` token. If any token follows that colon, the body is inline.
+	## Lambdas nested inside brackets are always treated as inline since
+	## their body lines are bracket continuations that cannot take probes.
+	if depth_at_func > 0:
+		return true
+	var depth := 0
+	for j in range(func_idx + 1, tokens.size()):
+		var t = tokens[j]
+		if t.is_open_group():
+			depth += 1
+		elif t.is_close_group():
+			depth = maxi(0, depth - 1)
+		elif t.type == GUTCheckToken.Type.COLON and depth == 0:
+			return j < tokens.size() - 1
+	return false
+
+
+func _has_tokens_after_block_colon(tokens: Array) -> bool:
+	## True when a compound-statement line has code after its block colon
+	## (e.g. `else: x()` or `"up": return v`). The block colon is the first
+	## COLON at group depth 0; comments are never in the token list.
+	var depth := 0
+	for i in range(tokens.size()):
+		var t = tokens[i]
+		if t.is_open_group():
+			depth += 1
+		elif t.is_close_group():
+			depth = maxi(0, depth - 1)
+		elif t.type == GUTCheckToken.Type.COLON and depth == 0:
+			return i < tokens.size() - 1
+	return false
+
+
+func _is_block_property_accessor(tokens: Array, indent: int, property_indent_stack: Array) -> bool:
+	## True when this line is a get:/set(value): accessor with a block body
+	## (no code after the colon). Inline accessors (`get: return x`) keep
+	## their body on the accessor line and stay excluded from coverage.
+	if property_indent_stack.size() == 0:
+		return false
+	if indent != int(property_indent_stack.back().indent) + 1:
+		return false
+	if not _is_property_accessor(tokens):
+		return false
+	return not _has_tokens_after_block_colon(tokens)
 
 
 func _close_scopes_at_indent(indent: int, func_stack: Array,

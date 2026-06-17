@@ -580,9 +580,11 @@ func test_annotation_with_parens_only():
 
 
 func test_annotation_with_parens_then_var():
+	# Annotated member declarations are excluded from coverage like any
+	# other class-body declaration.
 	var source = "@export_range(0, 100) var health: int = 50"
 	var map = _classify(source)
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -590,8 +592,8 @@ func test_annotation_with_parens_then_var():
 # ---------------------------------------------------------------------------
 
 func test_await_is_executable():
-	var map = _classify("await get_tree().process_frame")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\tawait get_tree().process_frame")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -599,13 +601,13 @@ func test_await_is_executable():
 # ---------------------------------------------------------------------------
 
 func test_break_is_executable():
-	var map = _classify("break")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\twhile true:\n\t\tbreak")
+	assert_eq(map.lines[3].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 func test_continue_is_executable():
-	var map = _classify("continue")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\tfor i in range(3):\n\t\tcontinue")
+	assert_eq(map.lines[3].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -623,10 +625,10 @@ func test_semicolons_statement_count():
 # ---------------------------------------------------------------------------
 
 func test_multiline_dict_continuation():
-	var source = "var d = {\n\t\"a\": 1,\n\t\"b\": 2,\n}"
+	var source = "func f():\n\tvar d = {\n\t\t\"a\": 1,\n\t\t\"b\": 2,\n\t}"
 	var map = _classify(source)
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
-	for ln in [2, 3, 4]:
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	for ln in [3, 4, 5]:
 		if map.lines.has(ln):
 			assert_eq(map.lines[ln].type, GUTCheckScriptMap.LineType.CONTINUATION,
 				"Line %d should be CONTINUATION" % ln)
@@ -972,64 +974,21 @@ func test_cobertura_rate_zero_total_returns_zero():
 # COVERAGE COMPUTER — edge cases for branch hit derivation
 # ===========================================================================
 
-func test_get_branch_hit_count_returns_zero_when_line_info_missing():
-	var script_map := GUTCheckScriptMap.new()
-	var branch := GUTCheckBranchInfo.new(10, 0, 0, 0, true)
-	script_map.branches.append(branch)
-	var hits := PackedInt32Array([0])
-
-	var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
-		branch, script_map, hits)
-	assert_eq(hit_count, 0)
-
-
-func test_get_branch_hit_count_returns_zero_for_non_derivable_branch_type():
-	var script_map := GUTCheckScriptMap.new()
-	script_map.lines[10] = GUTCheckLineInfo.new(10, GUTCheckScriptMap.LineType.BRANCH_IF)
-	var branch := GUTCheckBranchInfo.new(10, 0, 0, 0, true)
-	script_map.branches.append(branch)
-	var hits := PackedInt32Array([0])
-
-	var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
-		branch, script_map, hits)
-	assert_eq(hit_count, 0)
+func test_get_branch_hit_count_reads_the_probe():
+	# A branch's coverage is just its probe's hit count. Derived block else/
+	# pattern branches have their probe_id bound to a real body-line probe by the
+	# allocator, so there is no special derivation path to test here.
+	var hits := PackedInt32Array([0, 7])
+	var miss := GUTCheckBranchInfo.new(10, 0, 0, 0, true)
+	var hit := GUTCheckBranchInfo.new(11, 0, 1, 1, false)
+	assert_eq(GUTCheckCoverageComputer.get_branch_hit_count(miss, hits), 0)
+	assert_eq(GUTCheckCoverageComputer.get_branch_hit_count(hit, hits), 7)
 
 
-func test_derive_body_hits_returns_zero_for_missing_probe_mapping():
+func test_get_branch_hit_count_out_of_range_probe_is_zero():
 	var hits := PackedInt32Array([3])
-	var hit_count := GUTCheckCoverageComputer.derive_body_hits(20, null, hits, {})
-	assert_eq(hit_count, 0)
-
-
-func test_derive_body_hits_returns_zero_for_out_of_range_probe_id():
-	var hits := PackedInt32Array([1])
-	var body_probe_ids := {20: 5}
-	var hit_count := GUTCheckCoverageComputer.derive_body_hits(
-		20, null, hits, body_probe_ids)
-	assert_eq(hit_count, 0)
-
-
-func test_build_body_probe_ids_without_body_line_keeps_default_value():
-	var script_map := GUTCheckScriptMap.new()
-	script_map.lines[5] = GUTCheckLineInfo.new(5, GUTCheckScriptMap.LineType.BRANCH_ELSE)
-	var branch := GUTCheckBranchInfo.new(5, 0, 0, 0, true)
-	script_map.branches.append(branch)
-
-	var body_probe_ids := GUTCheckCoverageComputer.build_body_probe_ids(
-		script_map, {}, [])
-	assert_true(body_probe_ids.has(5))
-	assert_eq(body_probe_ids[5], -1)
-
-
-func test_build_body_probe_ids_skips_null_line_info():
-	# line_info missing for branch.line_number -> continue (line 270-271).
-	var script_map := GUTCheckScriptMap.new()
-	var branch := GUTCheckBranchInfo.new(99, 0, 0, 0, true)
-	script_map.branches.append(branch)
-
-	var body_probe_ids := GUTCheckCoverageComputer.build_body_probe_ids(
-		script_map, {}, [])
-	assert_false(body_probe_ids.has(99))
+	var branch := GUTCheckBranchInfo.new(10, 0, 0, 5, true)  # probe 5 >= size 1
+	assert_eq(GUTCheckCoverageComputer.get_branch_hit_count(branch, hits), 0)
 
 
 func test_get_line_hit_count_uses_min_across_multiple_probes():
@@ -1218,6 +1177,7 @@ func test_empty_line_is_non_executable():
 func test_multiple_dedents_at_end():
 	var source = "func foo():\n\tif true:\n\t\tif false:\n\t\t\tpass"
 	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
 	assert_eq(map.functions.size(), 1)
 	assert_gt(map.probe_count, 0)
 
@@ -1345,20 +1305,20 @@ func test_find_for_in_string_containing_in():
 # ---------------------------------------------------------------------------
 
 func test_instrument_semicolon_two_stmts():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("a = 1; b = 2", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("a = 1; b = 2", 0, GUTCheckProbeAllocator.passthrough(10))
 	assert_string_contains(result, "GUTCheckCollector.hit(0,10)")
 	assert_string_contains(result, "GUTCheckCollector.hit(0,11)")
 	assert_string_contains(result, "a = 1")
 	assert_string_contains(result, "b = 2")
 
 func test_instrument_semicolon_single_stmt():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("x = 1", 0, 5)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("x = 1", 0, GUTCheckProbeAllocator.passthrough(5))
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 	assert_string_contains(result, "x = 1")
 
 func test_instrument_semicolon_string_with_semicolon():
 	# Semicolons inside strings should not split
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a;b"', 0, 0)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a;b"', 0, GUTCheckProbeAllocator.passthrough(0))
 	# Should be treated as a single statement
 	assert_eq(result.count("GUTCheckCollector.hit("), 1)
 
@@ -1375,26 +1335,26 @@ func _make_branch_probes(true_pid: int, false_pid: int) -> Array:
 
 func test_wrap_condition_br2_with_branch_probes():
 	var bps = _make_branch_probes(10, 11)
-	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2(1,5,10,11,")
 	assert_string_contains(result, "x > 0")
 
 func test_wrap_condition_br2_without_branch_probes():
-	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, 5, [])
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0:", "if", 1, GUTCheckProbeAllocator.passthrough(5), [])
 	assert_string_contains(result, "GUTCheckCollector.br(1,5,")
 
 func test_wrap_condition_br2_elif():
 	var bps = _make_branch_probes(20, 21)
-	var result = GUTCheckProbeInjector.wrap_condition_br2("elif y < 3:", "elif", 2, 8, bps)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("elif y < 3:", "elif", 2, GUTCheckProbeAllocator.passthrough(8), bps)
 	assert_string_contains(result, "elif GUTCheckCollector.hit_br2(2,8,20,21,")
 
 func test_wrap_condition_br2_while():
 	var bps = _make_branch_probes(30, 31)
-	var result = GUTCheckProbeInjector.wrap_condition_br2("while active:", "while", 3, 9, bps)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("while active:", "while", 3, GUTCheckProbeAllocator.passthrough(9), bps)
 	assert_string_contains(result, "while GUTCheckCollector.hit_br2(3,9,30,31,")
 
 func test_wrap_condition_br2_no_colon():
-	var result = GUTCheckProbeInjector.wrap_condition_br2("if something", "if", 0, 0, [])
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if something", "if", 0, GUTCheckProbeAllocator.passthrough(0), [])
 	assert_eq(result, "if something")
 
 
@@ -1404,16 +1364,16 @@ func test_wrap_condition_br2_no_colon():
 
 func test_wrap_for_br2_with_branch_probes():
 	var bps = _make_branch_probes(40, 41)
-	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2rng(1,5,40,41,")
 	assert_string_contains(result, "range(5)")
 
 func test_wrap_for_br2_without_branch_probes():
-	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, 5, [])
+	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5):", 1, GUTCheckProbeAllocator.passthrough(5), [])
 	assert_string_contains(result, "GUTCheckCollector.rng(1,5,")
 
 func test_wrap_for_br2_no_in():
-	var result = GUTCheckProbeInjector.wrap_for_br2("for_thing:", 1, 5, [])
+	var result = GUTCheckProbeInjector.wrap_for_br2("for_thing:", 1, GUTCheckProbeAllocator.passthrough(5), [])
 	assert_eq(result, "for_thing:")
 
 
@@ -1422,25 +1382,42 @@ func test_wrap_for_br2_no_in():
 # ---------------------------------------------------------------------------
 
 func test_wrap_match_simple():
-	var result = GUTCheckProbeInjector.wrap_match("match state:", 3, 15)
+	var result = GUTCheckProbeInjector.wrap_match("match state:", 3, GUTCheckProbeAllocator.passthrough(15))
 	assert_string_contains(result, "match GUTCheckCollector.br(3,15,state):")
 
 func test_wrap_match_complex_expr():
-	var result = GUTCheckProbeInjector.wrap_match("match foo.bar():", 1, 2)
+	var result = GUTCheckProbeInjector.wrap_match("match foo.bar():", 1, GUTCheckProbeAllocator.passthrough(2))
 	assert_string_contains(result, "match GUTCheckCollector.br(1,2,foo.bar()):")
 
 func test_wrap_match_no_colon():
-	var result = GUTCheckProbeInjector.wrap_match("match something", 0, 0)
+	var result = GUTCheckProbeInjector.wrap_match("match something", 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "match something")
 
 
 # ---------------------------------------------------------------------------
-# inject_match_pattern_probe — currently a no-op
+# inject_inline_body_probe — probes inline else:/pattern bodies
 # ---------------------------------------------------------------------------
 
-func test_inject_match_pattern_probe_returns_content():
-	var result = GUTCheckProbeInjector.inject_match_pattern_probe("0:", 1, 5)
-	assert_eq(result, "0:", "inject_match_pattern_probe should return content unchanged")
+func test_inject_inline_body_probe_pattern_without_body_unchanged():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe("0:", 1, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 5, true))
+	assert_eq(result, "0:", "Pattern without inline body should be unchanged")
+
+func test_inject_inline_body_probe_pattern_with_inline_body():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe('"up": return 1', 1, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 5, true))
+	assert_eq(result, '"up": GUTCheckCollector.hit(1,5);return 1')
+
+func test_inject_inline_body_probe_else_with_inline_body():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe("else: x()", 0, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 9, true))
+	assert_eq(result, "else: GUTCheckCollector.hit(0,9);x()")
+
+func test_inject_inline_body_probe_dict_pattern():
+	# The colon inside the dict pattern is nested — the block colon is found.
+	var result = GUTCheckProbeInjector.inject_inline_body_probe('{"k": 1}: return 2', 0, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 3, true))
+	assert_eq(result, '{"k": 1}: GUTCheckCollector.hit(0,3);return 2')
+
+func test_inject_inline_body_probe_comment_only_body_unchanged():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe("else:  # nothing here", 0, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 9, true))
+	assert_eq(result, "else:  # nothing here")
 
 
 # ---------------------------------------------------------------------------
@@ -1448,71 +1425,78 @@ func test_inject_match_pattern_probe_returns_content():
 # ---------------------------------------------------------------------------
 
 func test_instrument_line_executable():
-	var result = GUTCheckProbeInjector.instrument_line("\tvar x = 1", GUTCheckScriptMap.LineType.EXECUTABLE, 0, 5)
+	var result = GUTCheckProbeInjector.instrument_line("\tvar x = 1", GUTCheckScriptMap.LineType.EXECUTABLE, 0, GUTCheckProbeAllocator.passthrough(5))
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 	assert_true(result.begins_with("\t"), "Should preserve indent")
 
 func test_instrument_line_executable_multi_stmt():
-	var result = GUTCheckProbeInjector.instrument_line("\ta = 1; b = 2", GUTCheckScriptMap.LineType.EXECUTABLE, 0, 5, 2)
+	var result = GUTCheckProbeInjector.instrument_line("\ta = 1; b = 2", GUTCheckScriptMap.LineType.EXECUTABLE, 0, GUTCheckProbeAllocator.passthrough(5), 2)
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 	assert_string_contains(result, "GUTCheckCollector.hit(0,6)")
 
 func test_instrument_line_branch_else():
-	var result = GUTCheckProbeInjector.instrument_line("\telse:", GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, 0)
+	var result = GUTCheckProbeInjector.instrument_line("\telse:", GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "\telse:", "BRANCH_ELSE should be returned unchanged")
 
 func test_instrument_line_property_accessor():
-	var result = GUTCheckProbeInjector.instrument_line("\tget:", GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR, 0, 0)
+	var result = GUTCheckProbeInjector.instrument_line("\tget:", GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR, 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "\tget:", "PROPERTY_ACCESSOR should be returned unchanged")
 
 func test_instrument_line_branch_if():
 	var bps = _make_branch_probes(10, 11)
-	var result = GUTCheckProbeInjector.instrument_line("\tif x > 0:", GUTCheckScriptMap.LineType.BRANCH_IF, 1, 5, 1, bps)
+	var result = GUTCheckProbeInjector.instrument_line("\tif x > 0:", GUTCheckScriptMap.LineType.BRANCH_IF, 1, GUTCheckProbeAllocator.passthrough(5), 1, bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 
 func test_instrument_line_branch_elif():
 	var bps = _make_branch_probes(20, 21)
-	var result = GUTCheckProbeInjector.instrument_line("\telif y:", GUTCheckScriptMap.LineType.BRANCH_ELIF, 1, 5, 1, bps)
+	var result = GUTCheckProbeInjector.instrument_line("\telif y:", GUTCheckScriptMap.LineType.BRANCH_ELIF, 1, GUTCheckProbeAllocator.passthrough(5), 1, bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 
 func test_instrument_line_loop_while():
 	var bps = _make_branch_probes(30, 31)
-	var result = GUTCheckProbeInjector.instrument_line("\twhile active:", GUTCheckScriptMap.LineType.LOOP_WHILE, 1, 5, 1, bps)
+	var result = GUTCheckProbeInjector.instrument_line("\twhile active:", GUTCheckScriptMap.LineType.LOOP_WHILE, 1, GUTCheckProbeAllocator.passthrough(5), 1, bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 
 func test_instrument_line_loop_for():
 	var bps = _make_branch_probes(40, 41)
-	var result = GUTCheckProbeInjector.instrument_line("\tfor i in items:", GUTCheckScriptMap.LineType.LOOP_FOR, 1, 5, 1, bps)
+	var result = GUTCheckProbeInjector.instrument_line("\tfor i in items:", GUTCheckScriptMap.LineType.LOOP_FOR, 1, GUTCheckProbeAllocator.passthrough(5), 1, bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2rng(")
 
 func test_instrument_line_branch_match():
-	var result = GUTCheckProbeInjector.instrument_line("\tmatch val:", GUTCheckScriptMap.LineType.BRANCH_MATCH, 1, 5)
+	var result = GUTCheckProbeInjector.instrument_line("\tmatch val:", GUTCheckScriptMap.LineType.BRANCH_MATCH, 1, GUTCheckProbeAllocator.passthrough(5))
 	assert_string_contains(result, "match GUTCheckCollector.br(")
 
-func test_instrument_line_branch_pattern_with_probe():
+func test_instrument_line_branch_pattern_block_body_unchanged():
+	# Patterns with block bodies derive coverage from their first body line,
+	# so the pattern line itself is returned unchanged.
 	var bp = GUTCheckBranchInfo.new(1, 0, 0, 99, true)
-	var result = GUTCheckProbeInjector.instrument_line("\t0:", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, 5, 1, [bp])
-	# inject_match_pattern_probe is a no-op, so content is returned unchanged
+	var result = GUTCheckProbeInjector.instrument_line("\t0:", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, GUTCheckProbeAllocator.passthrough(5), 1, [bp])
 	assert_eq(result.strip_edges(), "0:")
 
+func test_instrument_line_branch_pattern_inline_body_probed():
+	# Patterns with inline bodies get the branch probe injected after the colon.
+	var bp = GUTCheckBranchInfo.new(1, 0, 0, 99, true)
+	var result = GUTCheckProbeInjector.instrument_line("\t0: return 1", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, GUTCheckProbeAllocator.passthrough(5), 1, [bp], true)
+	assert_eq(result, "\t0: GUTCheckCollector.hit(1,99);return 1")
+
 func test_instrument_line_branch_pattern_no_probe():
-	var result = GUTCheckProbeInjector.instrument_line("\t0:", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, 5, 1, [])
+	var result = GUTCheckProbeInjector.instrument_line("\t0:", GUTCheckScriptMap.LineType.BRANCH_PATTERN, 1, GUTCheckProbeAllocator.passthrough(5), 1, [])
 	assert_eq(result, "\t0:", "BRANCH_PATTERN without probes should be unchanged")
 
 func test_instrument_line_func_def():
-	var result = GUTCheckProbeInjector.instrument_line("func foo():", GUTCheckScriptMap.LineType.FUNC_DEF, 0, 0)
+	var result = GUTCheckProbeInjector.instrument_line("func foo():", GUTCheckScriptMap.LineType.FUNC_DEF, 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "func foo():", "FUNC_DEF should be returned unchanged")
 
 func test_instrument_line_class_def():
-	var result = GUTCheckProbeInjector.instrument_line("class Inner:", GUTCheckScriptMap.LineType.CLASS_DEF, 0, 0)
+	var result = GUTCheckProbeInjector.instrument_line("class Inner:", GUTCheckScriptMap.LineType.CLASS_DEF, 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "class Inner:", "CLASS_DEF should be returned unchanged")
 
 func test_instrument_line_non_executable():
-	var result = GUTCheckProbeInjector.instrument_line("# comment", GUTCheckScriptMap.LineType.NON_EXECUTABLE, 0, 0)
+	var result = GUTCheckProbeInjector.instrument_line("# comment", GUTCheckScriptMap.LineType.NON_EXECUTABLE, 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "# comment", "NON_EXECUTABLE should be returned unchanged")
 
 func test_instrument_line_continuation():
-	var result = GUTCheckProbeInjector.instrument_line("\t\"key\": val,", GUTCheckScriptMap.LineType.CONTINUATION, 0, 0)
+	var result = GUTCheckProbeInjector.instrument_line("\t\"key\": val,", GUTCheckScriptMap.LineType.CONTINUATION, 0, GUTCheckProbeAllocator.passthrough(0))
 	assert_eq(result, "\t\"key\": val,", "CONTINUATION should be returned unchanged")
 
 func test_instrument_line_ternary():
@@ -1520,7 +1504,7 @@ func test_instrument_line_ternary():
 		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
 		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
 	]
-	var result = GUTCheckProbeInjector.instrument_line('\tvar x = "a" if c else "b"', GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY, 1, 5, 1, bps)
+	var result = GUTCheckProbeInjector.instrument_line('\tvar x = "a" if c else "b"', GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY, 1, GUTCheckProbeAllocator.passthrough(5), 1, bps)
 	assert_string_contains(result, "GUTCheckCollector.hit(1,5)")
 	assert_string_contains(result, "GUTCheckCollector.br2(")
 
@@ -1530,53 +1514,53 @@ func test_instrument_line_ternary():
 # ---------------------------------------------------------------------------
 
 func test_semicolon_stmts_with_quoted_string():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a;b"; var t = 1', 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a;b"; var t = 1', 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Semicolon inside string should not create extra probe")
 
 func test_semicolon_stmts_with_single_quoted_string():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("var s = 'a;b'; var t = 1", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("var s = 'a;b'; var t = 1", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Semicolon inside single-quoted string should not split")
 
 func test_semicolon_stmts_with_brackets():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a, b); bar([1, 2])", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a, b); bar([1, 2])", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Should handle brackets correctly")
 
 func test_semicolon_stmts_with_nested_brackets():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo({a: [1]}); bar()", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo({a: [1]}); bar()", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Should handle nested brackets correctly")
 
 func test_semicolon_stmts_semicolon_in_parens():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a; b)", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a; b)", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 1, "Semicolon inside parens should not split")
 
 func test_semicolon_stmts_closing_brackets():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a); bar(b)", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("foo(a); bar(b)", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Closing brackets should allow semicolons at depth 0 to split")
 
 func test_semicolon_stmts_empty_trailing():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("a = 1;", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("a = 1;", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 1, "Trailing semicolon should not create empty statement")
 
 func test_semicolon_stmts_string_close_and_reopen():
 	# Test that ending a string and starting a new one works
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "ab" + "cd"; var t = 1', 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "ab" + "cd"; var t = 1', 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Should handle string close and reopen")
 
 func test_semicolon_stmts_escaped_quote_inside_string():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a\\";b"; var t = 1', 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements('var s = "a\\";b"; var t = 1', 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 2, "Escaped quote inside string should not break semicolon splitting")
 
 func test_semicolon_stmts_regular_chars():
-	var result = GUTCheckProbeInjector.instrument_semicolon_statements("abc = xyz", 0, 10)
+	var result = GUTCheckProbeInjector.instrument_semicolon_statements("abc = xyz", 0, GUTCheckProbeAllocator.passthrough(10))
 	var hit_count = result.count("GUTCheckCollector.hit(")
 	assert_eq(hit_count, 1, "Regular chars handled by else branch")
 	assert_string_contains(result, "abc = xyz")
@@ -1587,7 +1571,7 @@ func test_semicolon_stmts_regular_chars():
 # ---------------------------------------------------------------------------
 
 func test_wrap_ternary_no_ternary_found():
-	var result = GUTCheckProbeInjector.wrap_ternary("var x = 1", 0, 5, [])
+	var result = GUTCheckProbeInjector.wrap_ternary("var x = 1", 0, GUTCheckProbeAllocator.passthrough(5), [])
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 	assert_string_contains(result, "var x = 1")
 
@@ -1596,12 +1580,12 @@ func test_wrap_ternary_with_branch_probes():
 		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
 		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
 	]
-	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if cond else "no"', 0, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if cond else "no"', 0, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.br2(")
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 
 func test_wrap_ternary_missing_branch_probes():
-	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if cond else "no"', 0, 5, [])
+	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if cond else "no"', 0, GUTCheckProbeAllocator.passthrough(5), [])
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 
 func test_wrap_ternary_multiple_ternaries():
@@ -1611,7 +1595,7 @@ func test_wrap_ternary_multiple_ternaries():
 		GUTCheckBranchInfo.new(1, 1, 0, 12, true),
 		GUTCheckBranchInfo.new(1, 1, 1, 13, false),
 	]
-	var result = GUTCheckProbeInjector.wrap_ternary('"a" if x else "b" if y else "c"', 0, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_ternary('"a" if x else "b" if y else "c"', 0, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.hit(0,5)")
 	var br2_count = result.count("GUTCheckCollector.br2(")
 	assert_eq(br2_count, 2, "Should wrap both ternary conditions")
@@ -1621,8 +1605,8 @@ func test_wrap_ternary_condition_extraction():
 		GUTCheckBranchInfo.new(1, 0, 0, 10, true),
 		GUTCheckBranchInfo.new(1, 0, 1, 11, false),
 	]
-	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if a > b else "no"', 0, 5, bps)
-	assert_string_contains(result, "a > b)")
+	var result = GUTCheckProbeInjector.wrap_ternary('var x = "yes" if a > b else "no"', 0, GUTCheckProbeAllocator.passthrough(5), bps)
+	assert_string_contains(result, "a > b )")
 	assert_string_contains(result, " else ")
 
 
@@ -1643,8 +1627,10 @@ func test_find_ternary_positions_if_in_string():
 	assert_eq(result.size(), 0, "if inside string should not match")
 
 func test_find_ternary_positions_if_in_brackets():
+	# Ternaries inside brackets are expressions too — the classifier counts
+	# them, so the finder must locate them or their probes would never fire.
 	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = foo( a if b else c )")
-	assert_eq(result.size(), 0, "if inside brackets should not match at depth>0")
+	assert_eq(result.size(), 1, "Ternary inside call parens should be found")
 
 func test_find_ternary_positions_escaped_string():
 	var result = GUTCheckProbeInjector.find_ternary_if_positions('var x = "a\\"b" if cond else "c"')
@@ -1660,11 +1646,11 @@ func test_find_ternary_positions_single_quoted_string():
 
 func test_find_ternary_positions_bracket_depth():
 	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = [a if b else c]")
-	assert_eq(result.size(), 0, "Ternary inside square brackets should not match")
+	assert_eq(result.size(), 1, "Ternary inside square brackets should be found")
 
 func test_find_ternary_positions_curly_brackets():
 	var result = GUTCheckProbeInjector.find_ternary_if_positions("var x = {a if b else c}")
-	assert_eq(result.size(), 0, "Ternary inside curly brackets should not match")
+	assert_eq(result.size(), 1, "Ternary inside curly brackets should be found")
 
 func test_find_ternary_positions_closing_brackets():
 	var result = GUTCheckProbeInjector.find_ternary_if_positions("foo(a) if cond else bar(b)")
@@ -1722,16 +1708,20 @@ func test_find_matching_else_nested_ternary_skip():
 
 
 # ---------------------------------------------------------------------------
-# inject_match_pattern_probe — direct call coverage
+# inject_inline_body_probe — direct call coverage
 # ---------------------------------------------------------------------------
 
-func test_inject_match_pattern_probe_direct():
-	var result = GUTCheckProbeInjector.inject_match_pattern_probe("42:", 5, 20)
-	assert_eq(result, "42:", "Should return content unchanged (no-op)")
+func test_inject_inline_body_probe_pattern_no_body():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe("42:", 5, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 20, true))
+	assert_eq(result, "42:", "Should return content unchanged (no inline body)")
 
-func test_inject_match_pattern_probe_string_pattern():
-	var result = GUTCheckProbeInjector.inject_match_pattern_probe('"hello":', 3, 15)
+func test_inject_inline_body_probe_string_pattern_no_body():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe('"hello":', 3, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 15, true))
 	assert_eq(result, '"hello":', "Should return string pattern unchanged")
+
+func test_inject_inline_body_probe_string_pattern_with_body():
+	var result = GUTCheckProbeInjector.inject_inline_body_probe('"hello": greet()', 3, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 15, true))
+	assert_eq(result, '"hello": GUTCheckCollector.hit(3,15);greet()')
 
 
 # ---------------------------------------------------------------------------
@@ -1786,7 +1776,7 @@ func test_find_for_in_closing_brackets():
 # ---------------------------------------------------------------------------
 
 func test_wrap_for_br2_no_colon_with_in():
-	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5)", 1, 5, [])
+	var result = GUTCheckProbeInjector.wrap_for_br2("for i in range(5)", 1, GUTCheckProbeAllocator.passthrough(5), [])
 	assert_eq(result, "for i in range(5)", "No colon should return unchanged")
 
 
@@ -1796,18 +1786,18 @@ func test_wrap_for_br2_no_colon_with_in():
 
 func test_wrap_condition_br2_with_after_colon_content():
 	var bps = _make_branch_probes(10, 11)
-	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0: pass", "if", 1, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x > 0: pass", "if", 1, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2(1,5,10,11,")
 	assert_string_contains(result, " pass")
 
 func test_wrap_condition_br2_only_true_probe():
 	var bps = [GUTCheckBranchInfo.new(1, 0, 0, 10, true)]
-	var result = GUTCheckProbeInjector.wrap_condition_br2("if x:", "if", 1, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if x:", "if", 1, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.br(1,5,")
 
 func test_wrap_condition_br2_extra_spaces():
 	var bps = _make_branch_probes(10, 11)
-	var result = GUTCheckProbeInjector.wrap_condition_br2("if   x > 0:", "if", 1, 5, bps)
+	var result = GUTCheckProbeInjector.wrap_condition_br2("if   x > 0:", "if", 1, GUTCheckProbeAllocator.passthrough(5), bps)
 	assert_string_contains(result, "GUTCheckCollector.hit_br2(")
 	assert_string_contains(result, "x > 0")
 

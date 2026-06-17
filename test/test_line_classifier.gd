@@ -29,9 +29,16 @@ func test_comment_line():
 	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 
 
-func test_var_declaration():
+func test_member_var_declaration_is_excluded():
+	# Class-body member declarations can't take a statement probe, so they
+	# are excluded from coverage instead of reported as permanently uncovered.
 	var map = _classify("var x = 5")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
+
+
+func test_local_var_declaration_is_executable():
+	var map = _classify("func f():\n\tvar x = 5")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 func test_const_declaration():
@@ -65,23 +72,23 @@ func test_enum_declaration():
 
 
 func test_pass_is_executable():
-	var map = _classify("pass")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\tpass")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 func test_return_is_executable():
-	var map = _classify("return 42")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\treturn 42")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 func test_function_call():
-	var map = _classify("print('hello')")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\tprint('hello')")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 func test_assignment():
-	var map = _classify("x = 5")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\tx = 5")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -166,16 +173,17 @@ func test_annotation_only_line():
 
 
 func test_annotation_with_var():
+	# Member declarations are excluded from coverage even with annotations.
 	var source = "@onready var x = $Node"
 	var map = _classify(source)
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 
 
 func test_export_annotation_alone():
 	var source = "@export\nvar x = 5"
 	var map = _classify(source)
 	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
-	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +191,12 @@ func test_export_annotation_alone():
 # ---------------------------------------------------------------------------
 
 func test_multiline_array():
-	var source = "var arr = [\n\t1,\n\t2,\n\t3,\n]"
+	var source = "func f():\n\tvar arr = [\n\t\t1,\n\t\t2,\n\t\t3,\n\t]"
 	var map = _classify(source)
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
-	for line_num in [2, 3, 4, 5]:
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[2].last_physical_line, 6,
+		"Statement should span through the closing bracket line")
+	for line_num in [3, 4, 5, 6]:
 		if map.lines.has(line_num):
 			assert_eq(map.lines[line_num].type, GUTCheckScriptMap.LineType.CONTINUATION,
 				"Line %d should be CONTINUATION" % line_num)
@@ -197,15 +207,26 @@ func test_multiline_array():
 # ---------------------------------------------------------------------------
 
 func test_probe_assignment():
-	var source = "var x = 1\n# comment\nvar y = 2"
+	var source = "func f():\n\tvar x = 1\n\t# comment\n\tvar y = 2"
 	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
 	assert_gt(map.probe_count, 0, "Should assign at least one probe")
 	assert_eq(map.probe_to_line.size(), map.probe_count)
 
 
-func test_probes_only_on_executable_lines():
+func test_member_vars_get_no_probes():
 	var source = "class_name Foo\n\nvar x = 1\n# comment\nconst Y = 2"
 	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
+	assert_eq(map.probe_count, 0,
+		"Member declarations should not allocate probes")
+
+
+func test_probes_only_on_executable_lines():
+	var source = "class_name Foo\n\nvar x = 1\n\nfunc f():\n\tvar y = 2\n\treturn y"
+	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
+	assert_gt(map.probe_to_line.size(), 0, "Function bodies should have probes")
 	for probe_id: int in map.probe_to_line:
 		var line_num: int = map.probe_to_line[probe_id]
 		assert_true(map.lines[line_num].is_executable(),
@@ -225,6 +246,7 @@ func test_sample_script_classification():
 	file.close()
 
 	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
 
 	assert_gt(map.probe_count, 0, "Should have probes")
 	assert_gt(map.functions.size(), 5, "Should find multiple functions")
@@ -264,6 +286,7 @@ func test_match_wildcard_pattern():
 func test_match_pattern_not_assigned_probe():
 	var source = "func foo():\n\tmatch x:\n\t\t1:\n\t\t\tprint('one')"
 	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
 	# BRANCH_PATTERN should NOT get a probe (compound statement, can't instrument)
 	for probe_id: int in map.probe_to_line:
 		var line_num: int = map.probe_to_line[probe_id]
@@ -293,6 +316,7 @@ func test_property_get_set():
 func test_property_accessor_not_assigned_probe():
 	var source = "var prop: int:\n\tget:\n\t\treturn 0\n\tset(v):\n\t\tpass"
 	var map = _classify(source)
+	GUTCheckProbeAllocator.assign_all(map)
 	for probe_id: int in map.probe_to_line:
 		var line_num: int = map.probe_to_line[probe_id]
 		assert_ne(map.lines[line_num].type, GUTCheckScriptMap.LineType.PROPERTY_ACCESSOR,
@@ -379,10 +403,18 @@ func test_annotation_only_with_parens_non_executable():
 
 
 func test_annotation_with_args_then_code_is_executable():
-	# @export_range(0, 10) var x := 5 -> executable (annotation-recursion path).
+	# @warning_ignore("...") before a statement inside a function exercises
+	# the annotation-recursion path on a line that stays executable.
+	var map = _classify('func f():\n\t@warning_ignore("unused_variable") var x := 5')
+	assert_true(map.lines.has(2))
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+
+
+func test_annotation_with_args_on_member_var_is_excluded():
+	# Same recursion path at class level: member declaration stays excluded.
 	var map = _classify("@export_range(0, 10) var x := 5")
 	assert_true(map.lines.has(1))
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.NON_EXECUTABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -431,5 +463,5 @@ func test_property_accessor_set_with_paren():
 
 func test_var_no_trailing_colon_not_property():
 	# Var without trailing colon -> _has_trailing_colon_after_type returns false.
-	var map = _classify("var x := 5")
-	assert_eq(map.lines[1].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+	var map = _classify("func f():\n\tvar x := 5")
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)

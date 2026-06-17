@@ -51,7 +51,7 @@ func _generate_lcov(test_name: String) -> String:
 		_emit_function_records(lines, script_map, hits, context)
 
 		# Branch records
-		_emit_branch_records(lines, script_map, hits, context)
+		_emit_branch_records(lines, script_map, hits)
 
 		# Line records
 		_emit_line_records(lines, hits, context)
@@ -82,7 +82,7 @@ func _emit_function_records(lines: PackedStringArray, script_map, hits: PackedIn
 	lines.append("FNH:%d" % functions_hit)
 
 
-func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
+func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt32Array) -> void:
 	if script_map.branches.size() == 0:
 		# No branch data — omit BRF/BRH entirely for backward compatibility
 		return
@@ -90,8 +90,7 @@ func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt3
 	var branches_found := 0
 	var branches_hit := 0
 	for branch_info in script_map.branches:
-		var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(
-			branch_info, script_map, hits, context)
+		var hit_count := GUTCheckCoverageComputer.get_branch_hit_count(branch_info, hits)
 
 		lines.append("BRDA:%d,%d,%d,%d" % [
 			branch_info.line_number, branch_info.block_id,
@@ -142,8 +141,9 @@ func _get_function_hit_count(func_info, hits: PackedInt32Array, context: Diction
 	var line_probes: Dictionary = context.line_probes
 	var branch_line_hits: Dictionary = context.branch_line_hits
 	var exec_lines: Array[int] = context.exec_lines
+	var search_start := GUTCheckCoverageComputer.function_search_start(func_info)
 	for line_num in exec_lines:
-		if line_num >= func_info.start_line and (func_info.end_line == -1 or line_num <= func_info.end_line):
+		if line_num >= search_start and (func_info.end_line == -1 or line_num <= func_info.end_line):
 			return GUTCheckCoverageComputer.get_line_hit_count(
 				line_num, line_probes, hits, branch_line_hits)
 	return 0
