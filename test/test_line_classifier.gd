@@ -465,3 +465,26 @@ func test_var_no_trailing_colon_not_property():
 	# Var without trailing colon -> _has_trailing_colon_after_type returns false.
 	var map = _classify("func f():\n\tvar x := 5")
 	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE)
+
+
+# ---------------------------------------------------------------------------
+# Regression: a multiline string inside a dict literal must not swallow the
+# rest of the file. A dropped closing `}` used to leak the tokenizer's bracket
+# depth, suppressing all later INDENT/DEDENT so subsequent functions were
+# folded away and silently received no probes.
+# ---------------------------------------------------------------------------
+
+func test_function_after_multiline_string_dict_is_classified():
+	# Dict literal whose multiline-string value's closing `}` is on the close-
+	# quote line, followed by a real function. The function and its body must
+	# still be recognized.
+	var source = 'var cfg = {"doc": """\nmulti\nline\n""", "n": 1}\nfunc after_dict():\n\treturn 1'
+	var map = _classify(source)
+	var names: Array = []
+	for f in map.functions:
+		names.append(f.name)
+	assert_true(names.has("after_dict"),
+		"Function defined after the multiline-string dict should be recognized")
+	# `return 1` is line 6 and must be executable (folded away before the fix).
+	assert_true(map.lines.has(6) and map.lines[6].is_executable(),
+		"Body of the function after the dict should be executable")
