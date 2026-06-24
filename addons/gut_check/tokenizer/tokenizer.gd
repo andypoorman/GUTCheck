@@ -77,8 +77,28 @@ func _tokenize_line(line_idx: int) -> void:
 
 	_continuation = false
 
-	# Scan the line content character by character
-	var pos := content_start
+	# Scan the line content character by character (shared with the
+	# post-multiline-string remainder path so both tokenize identically).
+	_scan_line_content(line, content_start, line_num)
+
+	# End of line. If we just entered a multiline (triple-quoted) string, the
+	# statement continues into it — don't end the logical line here, or the
+	# string's closing line would be classified as its own executable line and
+	# get a probe injected inside the literal. The closing line emits the
+	# terminating NEWLINE once the string ends.
+	if not _continuation and not _in_multiline_string:
+		_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.NEWLINE, "", line_num, 0))
+
+
+## Scan a line's content from `start_pos` to the end, emitting tokens. Shared by
+## the normal per-line path and the remainder after a multiline string closes
+## mid-line, so strings, numbers, every operator, and `{ } [ ] ( )` bracket-depth
+## bookkeeping are handled identically in both. (A hand-rolled subset in the
+## multiline-continuation path used to silently drop tokens — most damagingly a
+## closing `}`, which left _bracket_depth stuck above zero and disabled all
+## further INDENT/DEDENT, dropping coverage for the rest of the file.)
+func _scan_line_content(line: String, start_pos: int, line_num: int) -> void:
+	var pos := start_pos
 	var length := line.length()
 
 	while pos < length:
@@ -148,14 +168,6 @@ func _tokenize_line(line_idx: int) -> void:
 
 		# Unknown character - skip it
 		pos += 1
-
-	# End of line. If we just entered a multiline (triple-quoted) string, the
-	# statement continues into it — don't end the logical line here, or the
-	# string's closing line would be classified as its own executable line and
-	# get a probe injected inside the literal. The closing line emits the
-	# terminating NEWLINE once the string ends.
-	if not _continuation and not _in_multiline_string:
-		_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.NEWLINE, "", line_num, 0))
 
 
 func _count_indent(line: String) -> int:
@@ -270,40 +282,25 @@ func _scan_triple_quoted_string(line: String, pos: int, line_num: int, quote: St
 func _scan_multiline_string_continuation(line: String, line_num: int) -> void:
 	var triple := _multiline_quote_char + _multiline_quote_char + _multiline_quote_char
 	var close_pos := line.find(triple)
+	if close_pos == -1:
+		return  # still inside the multiline string — emit nothing this line
 
-	if close_pos != -1:
-		# Found the closing triple-quote
-		_in_multiline_string = false
-		var after_close := close_pos + 3
-		_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.STRING, triple, line_num, 0))
+	# Found the closing triple-quote.
+	_in_multiline_string = false
+	var after_close := close_pos + 3
+	_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.STRING, triple, line_num, 0))
 
-		# Continue scanning any code after the closing triple-quote on this line
-		if after_close < line.length():
-			var rest := line.substr(after_close)
-			var rest_stripped := rest.strip_edges()
-			if not rest_stripped.is_empty() and not rest_stripped.begins_with("#"):
-				# There's code after the closing triple-quote — scan it
-				var temp_pos := after_close
-				while temp_pos < line.length():
-					var c := line[temp_pos]
-					if c == " " or c == "\t":
-						temp_pos += 1
-						continue
-					if c == "#":
-						_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.COMMENT, line.substr(temp_pos), line_num, temp_pos))
-						break
-					if _is_identifier_start(c):
-						temp_pos = _scan_identifier(line, temp_pos, line_num)
-						continue
-					if c == "." or c == "(" or c == ")" or c == "[" or c == "]":
-						var op_result := _scan_operator(line, temp_pos, line_num)
-						if op_result > temp_pos:
-							temp_pos = op_result
-							continue
-					temp_pos += 1
+	# Scan any code after the closing triple-quote through the SAME path as a
+	# normal line, so operators, numbers, strings, comments and bracket-depth
+	# bookkeeping for { } [ ] ( ) are all handled identically. _scan_line_content
+	# is a no-op for an empty/whitespace remainder and emits a COMMENT for a
+	# trailing `# ...`, matching the normal line path.
+	_scan_line_content(line, after_close, line_num)
 
+	# Terminate the logical line — unless the remainder itself continued, via a
+	# trailing `\` or another triple-quote that opened a fresh multiline string.
+	if not _continuation and not _in_multiline_string:
 		_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.NEWLINE, "", line_num, 0))
-	# else: still inside multiline string — don't emit tokens
 
 
 func _scan_string_name(line: String, pos: int, line_num: int) -> int:
