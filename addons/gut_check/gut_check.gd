@@ -135,7 +135,8 @@ func export_cobertura() -> int:
 
 
 ## Print a coverage summary. Pass a GUT logger for integration, or null for print().
-## If previous_lcov_path is provided, shows delta from the previous run.
+## When a previous LCOV file exists at the configured lcov_output path, the
+## summary also shows the delta from that run.
 func print_summary(logger = null) -> void:
 	var output_path: String = _config.get("lcov_output", DEFAULT_CONFIG.lcov_output)
 	var previous := _parse_previous_lcov(output_path)

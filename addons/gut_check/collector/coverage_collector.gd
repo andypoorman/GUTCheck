@@ -46,8 +46,9 @@ static func hit(script_id: int, probe_id: int) -> void:
 		_hits[script_id][probe_id] += 1
 
 
-## Record a hit and return the value unchanged. Used to wrap conditions:
-##   if GUTCheckCollector.br(sid, pid, original_condition):
+## Record a hit and return the value unchanged. Used to wrap a match subject, or
+## a condition when only one side of the branch is tracked:
+##   match GUTCheckCollector.br(sid, pid, state):
 static func br(script_id: int, probe_id: int, value: Variant) -> Variant:
 	if _enabled:
 		_hits[script_id][probe_id] += 1
@@ -136,18 +137,6 @@ static func disable() -> void:
 	_enabled = false
 
 
-static func reset() -> void:
-	for sid: int in _hits:
-		_hits[sid].fill(0)
-
-
-## Remove a single script from tracking. Used to roll back failed instrumentation.
-static func unregister_script(script_id: int) -> void:
-	_hits.erase(script_id)
-	_script_paths.erase(script_id)
-	_script_maps.erase(script_id)
-
-
 static func clear() -> void:
 	if _locked:
 		# When locked, clear() is a no-op. This preserves real
@@ -200,37 +189,3 @@ static func get_script_paths() -> Dictionary:
 
 static func get_script_maps() -> Dictionary:
 	return _script_maps
-
-
-## Returns probe-based coverage counts (hit probes / total probes), NOT line-based.
-## For canonical line-coverage metrics, use GUTCheck._build_coverage_report().total_line_pct.
-static func get_coverage_summary() -> Dictionary:
-	var total_lines := 0
-	var hit_lines := 0
-	var per_script: Dictionary = {}
-
-	for sid: int in _hits:
-		var hits: PackedInt32Array = _hits[sid]
-		var path: String = _script_paths.get(sid, "unknown")
-		var script_total := hits.size()
-		var script_hit := 0
-
-		for h in hits:
-			if h > 0:
-				script_hit += 1
-
-		total_lines += script_total
-		hit_lines += script_hit
-
-		per_script[path] = {
-			"lines_found": script_total,
-			"lines_hit": script_hit,
-			"percentage": (float(script_hit) / float(script_total) * 100.0) if script_total > 0 else 0.0,
-		}
-
-	return {
-		"total_lines": total_lines,
-		"hit_lines": hit_lines,
-		"percentage": (float(hit_lines) / float(total_lines) * 100.0) if total_lines > 0 else 0.0,
-		"scripts": per_script,
-	}

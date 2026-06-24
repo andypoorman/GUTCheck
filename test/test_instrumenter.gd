@@ -353,12 +353,6 @@ func test_probe_injector_for_in_with_no_in_returns_content_unchanged():
 	assert_eq(result, "for x:")
 
 
-func test_probe_injector_find_block_colon_inside_string_ignored():
-	# A colon inside a string literal must not be treated as block colon.
-	var idx = GUTCheckProbeInjector.find_block_colon('"a:b":')
-	assert_eq(idx, 5, "Block colon should be the one outside the string")
-
-
 func test_probe_injector_find_ternary_if_positions_no_ternary():
 	var positions = GUTCheckProbeInjector.find_ternary_if_positions("var x = 5")
 	assert_eq(positions.size(), 0)

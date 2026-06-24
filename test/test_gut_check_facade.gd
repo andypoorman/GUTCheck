@@ -115,9 +115,8 @@ func test_instrument_scripts_enables_collector():
 
 	gc.instrument_scripts()
 
-	var summary := GUTCheckCollector.get_coverage_summary()
-	assert_gt(summary.total_lines, 0,
-		"Collector should have lines tracked after instrumentation")
+	assert_gt(GUTCheckCollector.get_script_maps().size(), 0,
+		"Collector should have scripts registered after instrumentation")
 
 
 func test_instrument_scripts_loads_config_if_empty():
