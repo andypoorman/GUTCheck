@@ -388,6 +388,16 @@ func _has_trailing_colon_after_type(tokens: Array) -> bool:
 		and tokens[tokens.size() - 1].type == GUTCheckToken.Type.COLON
 
 
+func _is_lambda_assignment(tokens: Array) -> bool:
+	## True if the line assigns a lambda (`... = func(...):`), so its trailing
+	## colon is the lambda's block colon — not a get/set property accessor block.
+	for i in range(tokens.size() - 1):
+		if tokens[i].type == GUTCheckToken.Type.KW_FUNC \
+				and tokens[i + 1].type == GUTCheckToken.Type.PAREN_OPEN:
+			return true
+	return false
+
+
 func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		preceded_by_static: bool, func_stack: Array,
 		class_stack: Array, match_indent_stack: Array[int],
@@ -443,8 +453,11 @@ func _handle_scope_entry(tokens: Array, line_num: int, indent: int,
 		match_indent_stack.append(indent)
 
 	elif kw.type == GUTCheckToken.Type.KW_VAR:
-		# Check if this var introduces a property block (trailing colon for get/set)
-		if _has_trailing_colon_after_type(tokens):
+		# A trailing colon usually starts a get/set property block — but a block-
+		# bodied lambda assignment (`var cb = func():`) also ends in a colon. Don't
+		# open a property scope for it; the lambda is registered by
+		# _detect_inline_lambdas below.
+		if _has_trailing_colon_after_type(tokens) and not _is_lambda_assignment(tokens):
 			var prop_name := ""
 			if kw_idx + 1 < tokens.size() and tokens[kw_idx + 1].type == GUTCheckToken.Type.IDENTIFIER:
 				prop_name = tokens[kw_idx + 1].value
