@@ -661,3 +661,48 @@ func test_instrumented_script_compiles():
 	if err != OK:
 		gut.p("=== INSTRUMENTED SOURCE (first 3000 chars) ===")
 		gut.p(result.source.substr(0, 3000))
+
+
+func _parse_cobertura_lines_valid(xml: String) -> int:
+	## Pull the top-level <coverage ... lines-valid="N" ...> attribute.
+	var marker := 'lines-valid="'
+	var idx := xml.find(marker)
+	if idx == -1:
+		return -1
+	var start := idx + marker.length()
+	var end_idx := xml.find('"', start)
+	if end_idx == -1:
+		return -1
+	return int(xml.substr(start, end_idx - start))
+
+
+func test_cobertura_lines_valid_matches_lcov_lf():
+	## Regression: Cobertura must count the same line denominator as LCOV and the
+	## console summary — executable lines plus branch-only else:/match lines.
+	## Previously Cobertura omitted branch-only lines, so its lines-valid was
+	## smaller than LCOV's LF for the identical run.
+	var source := _load_validation_source()
+	var result := _instrument_and_register(source)
+
+	var script := GDScript.new()
+	script.source_code = result.source
+	var err := script.reload()
+	assert_eq(err, OK, "Instrumented script should compile")
+	if err != OK:
+		return
+
+	var target = script.new()
+	GUTCheckCollector.enable()
+	target.fully_covered(1)
+	target.branching(true)
+	target.for_loop_then_more(2)
+	target.nested_blocks(3)
+	GUTCheckCollector.disable()
+
+	var lcov := GUTCheckLcovExporter.new().generate_lcov()
+	var lcov_lf: int = _parse_summary(lcov).get("LF", -1)
+	assert_gt(lcov_lf, 0, "LCOV LF should be positive")
+
+	var xml := GUTCheckCoberturaExporter.new().generate_cobertura()
+	assert_eq(_parse_cobertura_lines_valid(xml), lcov_lf,
+		"Cobertura lines-valid must equal LCOV LF for the same run (else:/match lines included)")
