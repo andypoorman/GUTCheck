@@ -179,6 +179,11 @@ end_of_record
 	assert_string_contains(result, "FNDA:5,foo")  # 3 + 2
 	assert_string_contains(result, "DA:6,4")       # 3 + 1
 	assert_string_contains(result, "DA:7,5")       # 0 + 5
+	# Recomputed summary counters (the merger's own tallies, not the inputs')
+	assert_string_contains(result, "LF:2")
+	assert_string_contains(result, "LH:2")   # both lines now hit
+	assert_string_contains(result, "FNF:1")
+	assert_string_contains(result, "FNH:1")
 
 
 func test_merge_different_files():
@@ -235,6 +240,9 @@ end_of_record
 	var result := merger.generate_merged()
 	assert_string_contains(result, "BRDA:10,0,0,7")  # 5 + 2
 	assert_string_contains(result, "BRDA:10,0,1,3")  # 0 + 3
+	# Recomputed branch summary: both branches now hit
+	assert_string_contains(result, "BRF:2")
+	assert_string_contains(result, "BRH:2")
 
 
 func test_merge_clear():

@@ -61,6 +61,7 @@ Create a `.gutcheck.json` file in your project root:
 | `lcov_output` | `String` | `"res://coverage.lcov"` | Path to write the LCOV tracefile |
 | `coverage_target` | `float` | `0` | Minimum coverage percentage (0-100). Post-run hook sets exit code 1 if not met |
 | `cobertura_output` | `String` | `""` | Path to write Cobertura XML. Empty string disables Cobertura export |
+| `merge_inputs` | `Array[String]` | `[]` | Additional LCOV tracefiles to merge with this run's coverage into `lcov_output` (e.g. parallel/sharded test runs). Empty disables merging |
 
 ## GUT Integration
 
@@ -196,6 +197,18 @@ Requires `pull-requests: write` permission on the job.
   with:
     file: coverage.lcov
 ```
+
+### Merging additional tracefiles
+
+Set `merge_inputs` to a list of existing LCOV files to combine with the current run's coverage. Useful when coverage is collected across multiple runs (e.g. split test suites) and you want a single combined `lcov_output`:
+
+```json
+{
+  "merge_inputs": ["res://coverage_unit.lcov", "res://coverage_integration.lcov"]
+}
+```
+
+Hit counts for matching file/line/branch records are summed, and the `LF`/`LH`/`FNF`/`FNH`/`BRF`/`BRH` summary records are recomputed.
 
 ## Output Format
 
