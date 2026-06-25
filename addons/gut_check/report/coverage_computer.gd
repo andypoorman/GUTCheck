@@ -8,7 +8,6 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var context := build_script_context(script_map, hits)
 	var line_probes: Dictionary = context.line_probes
 	var branch_line_hits: Dictionary = context.branch_line_hits
-	var exec_lines: Array[int] = context.exec_lines
 
 	# Executable lines plus branch-only lines (else:, match arms), so the console
 	# summary matches the LCOV/Cobertura output. See collect_da_lines.
