@@ -488,3 +488,18 @@ func test_function_after_multiline_string_dict_is_classified():
 	# `return 1` is line 6 and must be executable (folded away before the fix).
 	assert_true(map.lines.has(6) and map.lines[6].is_executable(),
 		"Body of the function after the dict should be executable")
+
+
+func test_block_lambda_in_var_is_not_property_scope():
+	# `var cb = func():` ends in a colon like a get/set property block, but it is
+	# a block-bodied lambda assignment. It must NOT open a property-accessor
+	# scope — otherwise body lines that look like accessors (set(...), get:) get
+	# misclassified as PROPERTY_ACCESSOR (excluded from coverage) and a phantom
+	# `cb.set` function is registered.
+	var source = "var cb = func():\n\tset(\"x\", 1)\n"
+	var map = _classify(source)
+	assert_eq(map.lines[2].type, GUTCheckScriptMap.LineType.EXECUTABLE,
+		"set(...) in a block-lambda body must be executable, not a property accessor")
+	for f in map.functions:
+		assert_false(String(f.name).ends_with(".set"),
+			"No phantom property-accessor function should be registered for the lambda")
