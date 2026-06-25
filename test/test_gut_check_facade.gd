@@ -415,3 +415,64 @@ func test_print_summary_script_with_no_functions():
 		pass
 
 	assert_true(true, "print_summary with no-function script should not crash")
+
+
+# ---------------------------------------------------------------------------
+# export_coverage() + merge_inputs
+# ---------------------------------------------------------------------------
+
+func test_export_coverage_merges_configured_inputs():
+	# merge_inputs lists extra LCOV tracefiles to combine with this run's
+	# coverage into a single tracefile (e.g. parallel/sharded test runs).
+	var sid := 5500
+	var map := GUTCheckScriptMap.new()
+	map.path = "res://merge_target.gd"
+	map.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.EXECUTABLE)
+	GUTCheckProbeAllocator.assign_all(map)
+	GUTCheckCollector.register_script(sid, "res://merge_target.gd", map.probe_count, map)
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit(sid, 0)
+	GUTCheckCollector.disable()
+
+	# A previously-written tracefile for a different source file.
+	var extra_path := "user://gutcheck_merge_extra.lcov"
+	var ef := FileAccess.open(extra_path, FileAccess.WRITE)
+	ef.store_string("TN:\nSF:/other/extra.gd\nDA:1,7\nLF:1\nLH:1\nend_of_record\n")
+	ef.close()
+
+	var out_path := "user://gutcheck_merged_out.lcov"
+	var gc := GUTCheck.new()
+	gc.load_config()
+	gc._config["lcov_output"] = out_path
+	gc._config["merge_inputs"] = [extra_path]
+	assert_eq(gc.export_coverage(), OK, "export_coverage with merge_inputs should succeed")
+
+	var rf := FileAccess.open(out_path, FileAccess.READ)
+	var merged := rf.get_as_text()
+	rf.close()
+	assert_string_contains(merged, "extra.gd",
+		"Merged output should include the configured tracefile's records")
+	assert_string_contains(merged, "DA:1,7",
+		"The merged-in file's hit count should be present")
+	assert_string_contains(merged, "merge_target.gd",
+		"This run's own coverage should be present")
+
+
+func test_export_coverage_without_merge_inputs_writes_plain_lcov():
+	# Default (no merge_inputs): export_coverage writes the plain single-run LCOV.
+	var sid := 5501
+	var map := GUTCheckScriptMap.new()
+	map.path = "res://plain_target.gd"
+	map.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.EXECUTABLE)
+	GUTCheckProbeAllocator.assign_all(map)
+	GUTCheckCollector.register_script(sid, "res://plain_target.gd", map.probe_count, map)
+
+	var out_path := "user://gutcheck_plain_out.lcov"
+	var gc := GUTCheck.new()
+	gc.load_config()
+	gc._config["lcov_output"] = out_path
+	assert_eq(gc.export_coverage(), OK)
+	var rf := FileAccess.open(out_path, FileAccess.READ)
+	var content := rf.get_as_text()
+	rf.close()
+	assert_string_contains(content, "plain_target.gd")

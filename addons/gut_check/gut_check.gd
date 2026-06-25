@@ -14,6 +14,7 @@ const DEFAULT_CONFIG := {
 	"lcov_output": "res://coverage.lcov",
 	"coverage_target": 0.0,
 	"cobertura_output": "",
+	"merge_inputs": [],
 }
 
 var _config: Dictionary = {}
@@ -116,13 +117,26 @@ func get_skipped_scripts() -> Array[String]:
 	return _skipped_scripts
 
 
-## Export coverage data to LCOV file.
+## Export coverage data to LCOV file. When `merge_inputs` lists other LCOV
+## tracefiles (e.g. from parallel or sharded test runs), this run's coverage is
+## merged with them into a single combined tracefile at lcov_output.
 func export_coverage() -> int:
 	GUTCheckCollector.disable()
 
 	var output_path: String = _config.get("lcov_output", DEFAULT_CONFIG.lcov_output)
 	var exporter := GUTCheckLcovExporter.new()
-	return exporter.export_lcov(output_path)
+
+	var merge_inputs: Array = _config.get("merge_inputs", [])
+	if merge_inputs.is_empty():
+		return exporter.export_lcov(output_path)
+
+	# Combine this run's coverage with the listed tracefiles. add_content takes
+	# the live LCOV first so its records are present even if an input is missing.
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content(exporter.generate_lcov())
+	for input_path in merge_inputs:
+		merger.add_file(input_path)
+	return merger.write_merged(output_path)
 
 
 ## Export coverage data to Cobertura XML file.
