@@ -109,20 +109,9 @@ func _emit_line_records(lines: PackedStringArray, hits: PackedInt32Array, contex
 	var line_probes: Dictionary = context.line_probes
 	var branch_line_hits: Dictionary = context.branch_line_hits
 
-	# Collect all lines that need DA records: executable lines + branch lines.
-	# LCOV spec requires every line with a BRDA record to also have a DA record.
-	var executable_lines: Array[int] = context.exec_lines
-	var exec_set: Dictionary = {}
-	for ln in executable_lines:
-		exec_set[ln] = true
-
-	var all_da_lines: Array[int] = executable_lines.duplicate()
-	var script_map = context.script_map
-	for branch_info in script_map.branches:
-		if not exec_set.has(branch_info.line_number):
-			exec_set[branch_info.line_number] = true
-			all_da_lines.append(branch_info.line_number)
-	all_da_lines.sort()
+	# Executable lines + branch-only lines (else:, match arms). LCOV requires a
+	# DA record for every line that has a BRDA record. See collect_da_lines.
+	var all_da_lines: Array[int] = context.da_lines
 
 	for line_num in all_da_lines:
 		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
@@ -138,15 +127,7 @@ func _emit_line_records(lines: PackedStringArray, hits: PackedInt32Array, contex
 
 func _get_function_hit_count(func_info, hits: PackedInt32Array, context: Dictionary) -> int:
 	# A function's hit count is the hit count of its first executable line.
-	var line_probes: Dictionary = context.line_probes
-	var branch_line_hits: Dictionary = context.branch_line_hits
-	var exec_lines: Array[int] = context.exec_lines
-	var search_start := GUTCheckCoverageComputer.function_search_start(func_info)
-	for line_num in exec_lines:
-		if line_num >= search_start and (func_info.end_line == -1 or line_num <= func_info.end_line):
-			return GUTCheckCoverageComputer.get_line_hit_count(
-				line_num, line_probes, hits, branch_line_hits)
-	return 0
+	return GUTCheckCoverageComputer.function_hit_count(func_info, context, hits)
 
 
 func _qualified_func_name(func_info) -> String:

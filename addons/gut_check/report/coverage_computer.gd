@@ -8,21 +8,10 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var context := build_script_context(script_map, hits)
 	var line_probes: Dictionary = context.line_probes
 	var branch_line_hits: Dictionary = context.branch_line_hits
-	var exec_lines: Array[int] = context.exec_lines
 
-	# Include branch-only lines (else, match patterns) in line counts so the
-	# console summary matches the LCOV output.  LCOV spec requires DA records
-	# for every line that has a BRDA record.
-	var exec_set: Dictionary = {}
-	for ln in exec_lines:
-		exec_set[ln] = true
-
-	var all_da_lines: Array[int] = exec_lines.duplicate()
-	for b in script_map.branches:
-		if not exec_set.has(b.line_number):
-			exec_set[b.line_number] = true
-			all_da_lines.append(b.line_number)
-	all_da_lines.sort()
+	# Executable lines plus branch-only lines (else:, match arms), so the console
+	# summary matches the LCOV/Cobertura output. See collect_da_lines.
+	var all_da_lines: Array[int] = context.da_lines
 
 	var lines_found := all_da_lines.size()
 	var lines_hit := 0
@@ -46,13 +35,8 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var funcs_found: int = script_map.functions.size()
 	var funcs_hit := 0
 	for func_info in script_map.functions:
-		var search_start := function_search_start(func_info)
-		for ln in exec_lines:
-			if ln >= search_start and (func_info.end_line == -1 or ln <= func_info.end_line):
-				var fhc := get_line_hit_count(ln, line_probes, hits, branch_line_hits)
-				if fhc > 0:
-					funcs_hit += 1
-				break
+		if function_hit_count(func_info, context, hits) > 0:
+			funcs_hit += 1
 
 	return {
 		"lines_found": lines_found,
@@ -183,12 +167,32 @@ static func is_excluded(path: String, patterns: Array) -> bool:
 # -- Shared helpers (used by exporters too) --
 
 static func build_script_context(script_map, hits: PackedInt32Array) -> Dictionary:
+	var exec_lines: Array[int] = script_map.get_executable_lines_sorted()
 	return {
 		"script_map": script_map,
 		"line_probes": build_line_probes(script_map),
-		"exec_lines": script_map.get_executable_lines_sorted(),
+		"exec_lines": exec_lines,
+		"da_lines": collect_da_lines(script_map, exec_lines),
 		"branch_line_hits": build_branch_line_hits(script_map, hits),
 	}
+
+
+## The lines that get a DA record: executable lines plus branch-only lines
+## (else:, match arms) that carry a BRDA but are not themselves "executable".
+## De-duplicated and sorted. Single source of truth for the line denominator,
+## shared by compute_script_coverage and both exporters so LCOV, Cobertura and
+## the console summary can never disagree on which lines count.
+static func collect_da_lines(script_map, exec_lines: Array[int]) -> Array[int]:
+	var seen: Dictionary = {}
+	for ln in exec_lines:
+		seen[ln] = true
+	var da_lines: Array[int] = exec_lines.duplicate()
+	for b in script_map.branches:
+		if not seen.has(b.line_number):
+			seen[b.line_number] = true
+			da_lines.append(b.line_number)
+	da_lines.sort()
+	return da_lines
 
 ## Build a mapping of line_number -> [probe_ids] for a script map.
 static func build_line_probes(script_map) -> Dictionary:
@@ -250,6 +254,17 @@ static func function_search_start(func_info) -> int:
 	if String(func_info.name).begins_with("<lambda"):
 		return func_info.start_line + 1
 	return func_info.start_line
+
+
+## Hit count for a function: the hit count of its first executable line within
+## the function's range (see function_search_start). Shared by the report
+## computer and the LCOV exporter so funcs_hit and FNDA agree.
+static func function_hit_count(func_info, context: Dictionary, hits: PackedInt32Array) -> int:
+	var search_start := function_search_start(func_info)
+	for ln: int in context.exec_lines:
+		if ln >= search_start and (func_info.end_line == -1 or ln <= func_info.end_line):
+			return get_line_hit_count(ln, context.line_probes, hits, context.branch_line_hits)
+	return 0
 
 
 static func _pct(hit: int, total: int, default_val: float = 0.0) -> float:
