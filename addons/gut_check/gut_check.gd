@@ -134,9 +134,16 @@ func export_coverage() -> int:
 	# the live LCOV first so its records are present even if an input is missing.
 	var merger := GUTCheckLcovMerger.new()
 	merger.add_content(exporter.generate_lcov())
+	var input_err := OK
 	for input_path in merge_inputs:
-		merger.add_file(input_path)
-	return merger.write_merged(output_path)
+		var add_err := merger.add_file(input_path)
+		if add_err != OK and input_err == OK:
+			input_err = add_err
+	# Always write the best-effort merge, but surface an unreadable input so a
+	# misconfigured CI job can detect a partial merge rather than silently
+	# shipping incomplete coverage. A write error takes precedence.
+	var write_err := merger.write_merged(output_path)
+	return write_err if write_err != OK else input_err
 
 
 ## Export coverage data to Cobertura XML file.

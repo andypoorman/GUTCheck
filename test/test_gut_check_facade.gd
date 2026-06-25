@@ -476,3 +476,31 @@ func test_export_coverage_without_merge_inputs_writes_plain_lcov():
 	var content := rf.get_as_text()
 	rf.close()
 	assert_string_contains(content, "plain_target.gd")
+
+
+func test_export_coverage_reports_unreadable_merge_input():
+	# A configured merge_inputs path that can't be read makes export_coverage
+	# return a non-OK status (so a misconfigured CI job can detect a partial
+	# merge), while the best-effort merge of this run's coverage is still written.
+	var sid := 5502
+	var map := GUTCheckScriptMap.new()
+	map.path = "res://merge_err_target.gd"
+	map.lines[1] = GUTCheckLineInfo.new(1, GUTCheckScriptMap.LineType.EXECUTABLE)
+	GUTCheckProbeAllocator.assign_all(map)
+	GUTCheckCollector.register_script(sid, "res://merge_err_target.gd", map.probe_count, map)
+
+	var out_path := "user://gutcheck_merge_err_out.lcov"
+	var gc := GUTCheck.new()
+	gc.load_config()
+	gc._config["lcov_output"] = out_path
+	gc._config["merge_inputs"] = ["user://gutcheck_does_not_exist_98765.lcov"]
+	assert_ne(gc.export_coverage(), OK,
+		"A missing merge input should make export_coverage report a non-OK status")
+
+	var rf := FileAccess.open(out_path, FileAccess.READ)
+	assert_not_null(rf, "Best-effort merged output should still be written")
+	if rf:
+		var content := rf.get_as_text()
+		rf.close()
+		assert_string_contains(content, "merge_err_target.gd",
+			"This run's own coverage should still be present in the partial merge")
