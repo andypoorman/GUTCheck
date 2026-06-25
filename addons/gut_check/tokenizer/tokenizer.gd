@@ -4,14 +4,12 @@ class_name GUTCheckTokenizer
 ## Converts GDScript source code into a stream of tokens. Handles indentation
 ## tracking, multiline strings, line continuations, and all GDScript syntax.
 
-var _source: String
 var _lines: PackedStringArray
 var _tokens: Array
 
 # Multiline state
 var _in_multiline_string: bool = false
 var _multiline_quote_char: String = ""
-var _multiline_start_line: int = 0
 
 # Indentation
 var _indent_stack: Array[int] = [0]
@@ -24,7 +22,6 @@ var _bracket_depth: int = 0
 
 
 func tokenize(source: String) -> Array:
-	_source = source
 	_lines = source.split("\n")
 	_tokens = []
 	_indent_stack = [0]
@@ -249,7 +246,6 @@ func _scan_raw_string(line: String, pos: int, line_num: int) -> int:
 	var start := pos
 	pos += 1  # skip 'r'
 	# Delegate to _scan_string with is_raw=true, but fix up the start position
-	var inner_start := pos
 	var result := _scan_string(line, pos, line_num, true)
 	# Replace the token we just emitted to include the 'r' prefix
 	if _tokens.size() > 0 and _tokens.back().line == line_num:
@@ -274,7 +270,6 @@ func _scan_triple_quoted_string(line: String, pos: int, line_num: int, quote: St
 	# Multiline string - store state and consume rest of line
 	_in_multiline_string = true
 	_multiline_quote_char = quote
-	_multiline_start_line = line_num
 	# Don't emit token yet - will emit when we find the closing triple-quote
 	return line.length()
 
@@ -617,10 +612,9 @@ func _scan_operator(line: String, pos: int, line_num: int) -> int:
 		"}":
 			_bracket_depth = maxi(0, _bracket_depth - 1)
 			_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.BRACE_CLOSE, "}", line_num, pos))
-		"\\": # standalone backslash not at end of line
-			_tokens.append(GUTCheckToken.new(GUTCheckToken.Type.BACKSLASH, "\\", line_num, pos))
 		_:
-			# Unknown single character - skip
+			# Unknown single character - skip (a standalone backslash is consumed
+			# as a line continuation in the main scan loop, before reaching here)
 			pass
 
 	return pos + 1
