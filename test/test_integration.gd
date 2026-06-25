@@ -430,14 +430,14 @@ func test_triple_quote_multiline_with_code_after():
 
 
 func test_triple_quote_multiline_with_comment_after():
-	# The multiline string continuation scanner checks for code/comments after
-	# closing triple-quote. A comment after the close should be recognized.
+	# A trailing comment after a closing triple-quote must not corrupt the token
+	# stream: the string is still emitted and the stream terminates cleanly.
 	var source = '"""\ntext\n""" # a comment'
 	var tokens = _tokenizer.tokenize(source)
-	# The continuation scanner handles comments specially — it only scans for
-	# identifiers and operators after close, not comments preceded by space.
-	# This tests that the code path runs without error.
-	assert_gt(tokens.size(), 0, "Should produce tokens")
+	assert_true(tokens.any(func(t): return t.type == GUTCheckToken.Type.STRING),
+		"Multiline string should still produce a STRING token")
+	assert_eq(tokens.back().type, GUTCheckToken.Type.EOF,
+		"Token stream should terminate with EOF even with a trailing comment")
 
 
 # ---------------------------------------------------------------------------
