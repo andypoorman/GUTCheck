@@ -129,29 +129,6 @@ func test_no_branch_records_when_no_branches():
 	assert_false(lcov.contains("BRF:"), "Should not have BRF without branches")
 
 
-func test_coverage_collector_summary():
-	var script_map = GUTCheckScriptMap.new()
-	script_map.path = "res://test.gd"
-	script_map.lines[1] = GUTCheckLineInfo.new(
-		1, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.lines[2] = GUTCheckLineInfo.new(
-		2, GUTCheckScriptMap.LineType.EXECUTABLE)
-	script_map.lines[3] = GUTCheckLineInfo.new(
-		3, GUTCheckScriptMap.LineType.EXECUTABLE)
-	GUTCheckProbeAllocator.assign_all(script_map)
-
-	GUTCheckCollector.register_script(0, "res://test.gd", script_map.probe_count, script_map)
-	GUTCheckCollector.enable()
-	GUTCheckCollector.hit(0, 0)
-	GUTCheckCollector.hit(0, 1)
-	GUTCheckCollector.disable()
-
-	var summary = GUTCheckCollector.get_coverage_summary()
-	assert_eq(summary.total_lines, 3)
-	assert_eq(summary.hit_lines, 2)
-	assert_almost_eq(summary.percentage, 66.666, 0.01)
-
-
 func test_export_lcov_writes_file_to_disk():
 	var script_map = GUTCheckScriptMap.new()
 	script_map.path = "res://src/lcov_disk_test.gd"

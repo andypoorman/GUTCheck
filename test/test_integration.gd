@@ -1250,32 +1250,6 @@ func test_probe_injector_get_indent_no_indent():
 
 
 # ---------------------------------------------------------------------------
-# find_block_colon
-# ---------------------------------------------------------------------------
-
-func test_find_block_colon_simple():
-	var pos = GUTCheckProbeInjector.find_block_colon("if x > 0:")
-	assert_eq(pos, 8)
-
-func test_find_block_colon_in_string():
-	# The colon inside the string should be ignored; only the trailing one counts
-	var pos = GUTCheckProbeInjector.find_block_colon('if s == "a:b":')
-	assert_eq(pos, 13)
-
-func test_find_block_colon_nested_parens():
-	var pos = GUTCheckProbeInjector.find_block_colon("if foo(a, b):")
-	assert_eq(pos, 12)
-
-func test_find_block_colon_no_colon():
-	var pos = GUTCheckProbeInjector.find_block_colon("var x = 1")
-	assert_eq(pos, -1)
-
-func test_find_block_colon_nested_brackets():
-	var pos = GUTCheckProbeInjector.find_block_colon("if d[k]:")
-	assert_eq(pos, 7)
-
-
-# ---------------------------------------------------------------------------
 # find_for_in
 # ---------------------------------------------------------------------------
 
@@ -1722,28 +1696,6 @@ func test_inject_inline_body_probe_string_pattern_no_body():
 func test_inject_inline_body_probe_string_pattern_with_body():
 	var result = GUTCheckProbeInjector.inject_inline_body_probe('"hello": greet()', 3, GUTCheckProbeAllocator.passthrough(0), GUTCheckBranchInfo.new(0, 0, 0, 15, true))
 	assert_eq(result, '"hello": GUTCheckCollector.hit(3,15);greet()')
-
-
-# ---------------------------------------------------------------------------
-# find_block_colon — string and bracket edge cases
-# ---------------------------------------------------------------------------
-
-func test_find_block_colon_single_quoted_string():
-	var pos = GUTCheckProbeInjector.find_block_colon("if s == 'a:b':")
-	assert_eq(pos, 13, "Should handle single-quoted strings")
-
-func test_find_block_colon_string_with_backslash():
-	# String contains a backslash — triggers the escape continue path
-	var pos = GUTCheckProbeInjector.find_block_colon('if s == "a\\nb"  :')
-	assert_gt(pos, -1, "Should handle backslash in strings")
-
-func test_find_block_colon_nested_curly_brackets():
-	var pos = GUTCheckProbeInjector.find_block_colon("if foo({a: 1}):")
-	assert_eq(pos, 14, "Should skip colons inside nested brackets")
-
-func test_find_block_colon_closing_brackets():
-	var pos = GUTCheckProbeInjector.find_block_colon("if (a) and (b):")
-	assert_eq(pos, 14, "Should handle closing brackets correctly")
 
 
 # ---------------------------------------------------------------------------

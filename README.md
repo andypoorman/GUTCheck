@@ -13,7 +13,7 @@ GUTCheck includes a GDScript tokenizer and statement-level parser written entire
 
 1. **Tokenize** - Lexes GDScript source into tokens, handling strings (single, double, triple-quoted, raw, StringName, NodePath), comments, annotations, operators, keywords, number literals (hex, binary, octal, scientific, underscores), indentation tracking, line continuations, and multiline expressions.
 2. **Classify** - Each source line is classified as executable, branch (`if`/`elif`/`else`), loop (`for`/`while`), match pattern, function def, class def, property accessor, or non-executable (comments, blanks, `class_name`, `extends`, `signal`, `enum`, `const` with literals, annotations).
-3. **Instrument** - Source-to-source transformation injects lightweight coverage probes while preserving line numbers exactly. Simple statements get a semicolon-prepended `hit()` call. Compound statements (`if`, `while`, `for`, `match`) get their condition/iterable wrapped so the probe doesn't break syntax.
+3. **Instrument** - Source-to-source transformation injects coverage probes while preserving line numbers exactly. Simple statements get a semicolon-prepended `hit()` call. Compound statements (`if`, `while`, `for`, `match`) get their condition/iterable wrapped so the probe doesn't break syntax.
 4. **Collect** - As tests run, probes call static methods on `GUTCheckCollector` which records hits in `PackedInt32Array` for fast indexed access.
 5. **Export** - Generates standard LCOV tracefiles with function records (`FN`/`FNDA`), branch records (`BRDA`/`BRF`/`BRH`), and line records (`DA`). Optionally exports Cobertura XML.
 
@@ -73,7 +73,7 @@ GUTCheck integrates with GUT through pre-run and post-run hook scripts. Add thes
 }
 ```
 
-That's it. GUTCheck will instrument your source scripts before tests run and export coverage after they finish.
+GUTCheck will instrument your source scripts before tests run and export coverage after they finish.
 
 If you already have custom hook scripts, call GUTCheck from within them:
 
@@ -125,13 +125,13 @@ print("hello")                GUTCheckCollector.hit(0,2);print("hello")
 **Compound statements** get their condition/iterable wrapped so the probe doesn't break GDScript's block syntax:
 ```gdscript
 # Original                    # Instrumented
-if x > 5:                     if GUTCheckCollector.br2(0,3,4,x > 5):
-for i in range(10):           for i in GUTCheckCollector.br2rng(0,5,6,range(10)):
-while running:                while GUTCheckCollector.br2(0,7,8,running):
-match state:                  match GUTCheckCollector.br(0,9,state):
+if x > 5:                     if GUTCheckCollector.hit_br2(0,3,4,5,x > 5):
+for i in range(10):           for i in GUTCheckCollector.hit_br2rng(0,6,7,8,range(10)):
+while running:                while GUTCheckCollector.hit_br2(0,9,10,11,running):
+match state:                  match GUTCheckCollector.br(0,12,state):
 ```
 
-`br2()` records into a true-branch or false-branch probe depending on the condition's truthiness. `br2rng()` does the same for iterable emptiness. `br()` records a single hit. All return the value unchanged, so there's no semantic change to your code.
+`hit_br2()` records the line probe plus the true- or false-branch probe depending on the condition's truthiness; `hit_br2rng()` does the same keyed on whether the iterable is empty. `br()` records a single hit for a `match` subject. (When only one side of a branch is measurable, the simpler `br()` / `rng()` forms are emitted instead.) All return the value unchanged, so there's no semantic change to your code.
 
 **`else:` and match patterns** can't have their header wrapped (they're not expressions). When the body is a block, coverage is inferred from the block's first line; when the body is inline (`else: x()` or `"up": return v`), a probe is injected after the colon so the branch only counts when the body actually runs:
 ```gdscript
@@ -265,13 +265,22 @@ addons/gut_check/
     token.gd            # Token class, TokenType enum, keyword/annotation tables
     tokenizer.gd        # Line-oriented GDScript lexer
   parser/
-    script_map.gd       # ScriptMap, LineInfo, FunctionInfo, ClassInfo data structures
     line_classifier.gd  # Consumes token stream, classifies lines, tracks scopes
+    script_map.gd       # ScriptMap container + branch-structure derivation
+    line_info.gd        # Per-line classification record
+    function_info.gd    # Function / lambda / accessor record
+    class_info.gd       # Inner-class record
+    branch_info.gd      # Branch (BRDA) record
   instrumenter/
-    instrumenter.gd     # Source-to-source transformation with probe injection
-    script_registry.gd  # Maps script IDs to file paths
+    instrumenter.gd      # Source-to-source transformation orchestration
+    probe_injector.gd    # Static string wrappers that inject collector calls
+    probe_allocator.gd   # Single authority for probe-ID allocation (inject-time)
+    instrument_result.gd # Result struct: source, probe_count, script_map
+    script_registry.gd   # Maps script IDs to file paths
   collector/
-    coverage_collector.gd  # Static hit counter (PackedInt32Array, ~3 ops per probe)
+    coverage_collector.gd  # Static hit counter (PackedInt32Array)
+  report/
+    coverage_computer.gd   # Coverage math, LCOV parsing, line-range formatting
   export/
     lcov_exporter.gd       # Generates LCOV tracefiles with FN/FNDA/BRDA/DA records
     lcov_merger.gd         # Merges multiple LCOV tracefiles (e.g., parallel test runs)
@@ -280,6 +289,7 @@ addons/gut_check/
     pre_run_hook.gd     # GUT pre-run hook (instruments scripts)
     post_run_hook.gd    # GUT post-run hook (exports + summary)
   gut_check.gd          # Facade: config, file discovery, orchestration
+  gut_check_plugin.gd   # EditorPlugin registration
 ```
 
 ## Status

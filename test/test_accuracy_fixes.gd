@@ -718,7 +718,7 @@ func classify(x: int) -> String:
 # --- P3: compound header with an inline typed-var body must compile ---------
 
 func test_inline_typed_var_body_compiles():
-	# Pre-fix: find_block_colon returned the LAST depth-0 colon (the type
+	# Pre-fix: block-colon detection returned the LAST depth-0 colon (the type
 	# colon), so the wrap captured `c: var y` → parse error → rollback.
 	var source := """extends RefCounted
 

@@ -320,31 +320,6 @@ func test_snapshot_restore_roundtrip():
 	assert_eq(_hits(5), 0, "Probe not hit before snapshot should be zero")
 
 
-func test_reset_zeros_hits_without_removing_registrations():
-	GUTCheckCollector.enable()
-	GUTCheckCollector.hit(SID, 0)
-	GUTCheckCollector.hit(SID, 1)
-	assert_eq(_hits(0), 1)
-
-	GUTCheckCollector.reset()
-
-	assert_true(GUTCheckCollector.get_hits().has(SID),
-		"Registration should survive reset")
-	assert_eq(_hits(0), 0, "Hits should be zeroed after reset")
-	assert_eq(_hits(1), 0, "Hits should be zeroed after reset")
-
-
-func test_unregister_script_removes_probes():
-	assert_true(GUTCheckCollector.get_hits().has(SID))
-	GUTCheckCollector.unregister_script(SID)
-	assert_false(GUTCheckCollector.get_hits().has(SID),
-		"Hits should be removed after unregister")
-	assert_false(GUTCheckCollector.get_script_paths().has(SID),
-		"Path should be removed after unregister")
-	assert_false(GUTCheckCollector.get_script_maps().has(SID),
-		"Script map should be removed after unregister")
-
-
 func test_register_script_creates_zeroed_hit_array():
 	var sid2 := 200
 	GUTCheckCollector.register_script(sid2, "res://other.gd", 5, null)
@@ -440,27 +415,3 @@ func test_enable_disable_toggle():
 	GUTCheckCollector.enable()
 	GUTCheckCollector.hit(SID, 0)
 	assert_eq(_hits(0), 2, "Should increment again after re-enable")
-
-
-# ===========================================================================
-# get_coverage_summary()
-# ===========================================================================
-
-func test_coverage_summary_with_no_hits():
-	var summary = GUTCheckCollector.get_coverage_summary()
-	assert_eq(summary.total_lines, PROBE_COUNT)
-	assert_eq(summary.hit_lines, 0)
-	assert_eq(summary.percentage, 0.0)
-
-
-func test_coverage_summary_with_partial_hits():
-	GUTCheckCollector.enable()
-	GUTCheckCollector.hit(SID, 0)
-	GUTCheckCollector.hit(SID, 3)
-	GUTCheckCollector.hit(SID, 7)
-	GUTCheckCollector.disable()
-
-	var summary = GUTCheckCollector.get_coverage_summary()
-	assert_eq(summary.hit_lines, 3)
-	assert_eq(summary.total_lines, PROBE_COUNT)
-	assert_almost_eq(summary.percentage, 30.0, 0.01)

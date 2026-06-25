@@ -55,9 +55,6 @@ func test_generate_coverage_report():
 	var write_err = exporter.export_lcov(lcov_path)
 	assert_eq(write_err, OK, "Should write LCOV file")
 
-	var summary = GUTCheckCollector.get_coverage_summary()
-	gut.p("Coverage: %.1f%% (%d/%d lines)" % [
-		summary.percentage, summary.hit_lines, summary.total_lines])
 	gut.p("LCOV written to: %s" % lcov_path)
 
 	GUTCheckCollector.restore_snapshot(_snapshot)

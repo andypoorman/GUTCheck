@@ -356,21 +356,6 @@ static func inject_inline_body_probe(content: String, sid: int, allocator: GUTCh
 		content.substr(0, colon_pos + 1), sid, allocator.branch(branch_info), body_stripped]
 
 
-## Find the block-starting colon, respecting strings and nesting.
-static func find_block_colon(content: String) -> int:
-	var scan_state := _new_scan_state()
-	var last_colon := -1
-
-	for i in range(content.length()):
-		var c: String = content[i]
-		if _scan_char(c, scan_state, i, content.length()):
-			continue
-		elif c == ":" and scan_state.depth == 0:
-			last_colon = i
-
-	return last_colon
-
-
 static func _split_block_content(content: String, start_pos: int) -> Dictionary:
 	var expr_start := start_pos
 	while expr_start < content.length() and content[expr_start] == " ":
