@@ -75,38 +75,37 @@ func test_function_records():
 	var lcov = exporter.generate_lcov()
 
 	assert_string_contains(lcov, "FN:5,my_func")
-	assert_string_contains(lcov, "FNDA:")
+	assert_string_contains(lcov, "FNDA:1,my_func")  # hit count = first exec line (line 6)
 	assert_string_contains(lcov, "FNF:1")
 	assert_string_contains(lcov, "FNH:1")
 
 
 func test_branch_records_emitted_for_if():
-	# Instrument a script with an if/else to verify BRDA records
+	# Run only the true path by actually executing the instrumented script, so the
+	# false branch stays uncovered and BRH < BRF. Firing every probe (as this test
+	# used to) makes BRH == BRF and can never catch a missed branch.
 	var instrumenter = GUTCheckInstrumenter.new()
-	var source = "func foo(x):\n\tif x > 5:\n\t\treturn true\n\telse:\n\t\treturn false"
+	var source = "func foo(x):\n\tif x > 5:\n\t\treturn true\n\treturn false"
 	var result = instrumenter.instrument(source, 0, "res://branch_test.gd")
-
 	GUTCheckCollector.register_script(0, "res://branch_test.gd", result.probe_count, result.script_map)
+	assert_gt(result.script_map.branches.size(), 0, "Should have branch info")
+
+	var script := GDScript.new()
+	script.source_code = result.source
+	var err := script.reload()
+	assert_eq(err, OK, "Instrumented branch source should compile")
+	if err != OK:
+		return
+
 	GUTCheckCollector.enable()
-
-	# Simulate: condition true twice, false once
-	# The br2() is used, so true_pid and false_pid get separate hits
-	# We need to find the branch probe IDs
-	var branches = result.script_map.branches
-	assert_gt(branches.size(), 0, "Should have branch info")
-
-	# Fire some line probes to simulate execution
-	for pid in range(result.probe_count):
-		GUTCheckCollector.hit(0, pid)
-
+	script.new().foo(10)  # x > 5 -> only the true branch runs
 	GUTCheckCollector.disable()
 
 	var exporter = GUTCheckLcovExporter.new()
 	var lcov = exporter.generate_lcov()
 
-	assert_string_contains(lcov, "BRDA:")
-	assert_string_contains(lcov, "BRF:")
-	assert_string_contains(lcov, "BRH:")
+	assert_string_contains(lcov, "BRF:2", "An if records a true and a false branch")
+	assert_string_contains(lcov, "BRH:1", "Only the true branch was taken")
 
 
 func test_no_branch_records_when_no_branches():

@@ -133,6 +133,8 @@ func test_string_with_escape():
 	var tokens = _tokenizer.tokenize('"hello\\nworld"')
 	var meaningful = _strip_structure(tokens)
 	assert_eq(meaningful[0].type, GUTCheckToken.Type.STRING)
+	assert_eq(meaningful[0].value, '"hello\\nworld"',
+		"Escaped string should be captured verbatim, escape sequence intact")
 
 
 func test_string_with_hash():
@@ -709,6 +711,7 @@ func test_tab_indentation():
 	var indents = tokens.filter(func(t): return t.type == GUTCheckToken.Type.INDENT)
 	var dedents = tokens.filter(func(t): return t.type == GUTCheckToken.Type.DEDENT)
 	assert_eq(indents.size(), 2, "Should detect 2 indent levels with tabs")
+	assert_eq(dedents.size(), 2, "Dedent out of the inner block, plus the trailing dedent at EOF")
 
 
 # ---------------------------------------------------------------------------

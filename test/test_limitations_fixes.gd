@@ -374,18 +374,18 @@ func test_multiple_lambdas_on_different_lines():
 
 
 func test_lambda_in_function_scope():
-	## Lambda's function_name in LineInfo should reference the lambda.
+	## A multi-line lambda body must be scoped to the lambda, not the enclosing
+	## function. Attributing it to `foo` is the regression this guards against.
 	var source := "func foo():\n\tvar fn = func(x):\n\t\treturn x * 2\n\treturn fn.call(5)"
 	var tokenizer := GUTCheckTokenizer.new()
 	var classifier := GUTCheckLineClassifier.new()
 	var tokens := tokenizer.tokenize(source)
 	var script_map := classifier.classify(tokens, "res://test.gd")
 
-	# Line 3 should be inside the lambda scope
-	if script_map.lines.has(3):
-		var fn_name: String = script_map.lines[3].function_name
-		assert_true(fn_name.begins_with("<lambda:") or fn_name == "foo",
-			"Lambda body should be scoped to lambda or enclosing function")
+	assert_true(script_map.lines.has(3), "Line 3 (lambda body) should be classified")
+	var fn_name: String = script_map.lines[3].function_name
+	assert_true(fn_name.begins_with("<lambda:"),
+		"Lambda body (line 3) must be scoped to the lambda, not '%s'" % fn_name)
 
 
 func test_single_line_lambda_no_extra_scope():
@@ -397,3 +397,8 @@ func test_single_line_lambda_no_extra_scope():
 	# Should not crash and should preserve line count
 	assert_eq(result.source.split("\n").size(), source.split("\n").size())
 	assert_gt(result.probe_count, 0)
+	for f in result.script_map.functions:
+		assert_false(String(f.name).begins_with("<lambda"),
+			"Inline single-line lambda must not register a function scope")
+	assert_eq(result.script_map.functions.size(), 1,
+		"Only the enclosing func should be registered")
