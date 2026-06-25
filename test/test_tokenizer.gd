@@ -375,6 +375,37 @@ func test_triple_quoted_with_operator_after_close():
 	assert_gt(brackets.size(), 0, "Should tokenize operator after closing triple-quote")
 
 
+func test_multiline_string_in_dict_does_not_leak_bracket_depth():
+	# A triple-quoted string value inside a `{ }` dict literal, with the closing
+	# brace on the SAME line as the closing triple-quote. The brace must be
+	# tokenized (not silently dropped) so _bracket_depth returns to 0 and the
+	# function defined afterwards still gets an INDENT for its body. Before the
+	# fix the post-close scanner dropped `}`, leaving _bracket_depth stuck at 1,
+	# which suppressed every later INDENT/DEDENT and dropped coverage for the
+	# rest of the file.
+	var source = 'var cfg = {"doc": """\nmulti\nline\n""", "n": 1}\nfunc after_dict():\n\treturn 1'
+	var tokens = _tokenizer.tokenize(source)
+	var opens = tokens.filter(func(t): return t.type == GUTCheckToken.Type.BRACE_OPEN)
+	var closes = tokens.filter(func(t): return t.type == GUTCheckToken.Type.BRACE_CLOSE)
+	assert_eq(closes.size(), opens.size(),
+		"Closing brace after a multiline string must be tokenized, not dropped")
+	var indents = tokens.filter(func(t): return t.type == GUTCheckToken.Type.INDENT)
+	assert_eq(indents.size(), 1,
+		"Function body after the dict must still get an INDENT (bracket depth back to 0)")
+
+
+func test_multiline_string_then_comma_and_number_after_close():
+	# Tokens other than identifiers/`.()[]` after a closing triple-quote used to
+	# be silently dropped by a hand-rolled mini-lexer. Verify a comma and a
+	# number on the close line are now tokenized through the normal scan path.
+	var source = 'foo("""\ntext\n""", 42)'
+	var tokens = _tokenizer.tokenize(source)
+	assert_true(tokens.any(func(t): return t.type == GUTCheckToken.Type.COMMA),
+		"Comma after closing triple-quote should be tokenized")
+	assert_true(tokens.any(func(t): return t.type == GUTCheckToken.Type.INTEGER and t.value == "42"),
+		"Number after closing triple-quote should be tokenized")
+
+
 # ---------------------------------------------------------------------------
 # StringName literals
 # ---------------------------------------------------------------------------
