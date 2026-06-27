@@ -244,11 +244,15 @@ func _scan_string(line: String, pos: int, line_num: int, is_raw: bool = false) -
 func _scan_raw_string(line: String, pos: int, line_num: int) -> int:
 	# r"..." or r'...' — backslash is not an escape character
 	var start := pos
+	var token_count_before := _tokens.size()
 	pos += 1  # skip 'r'
 	# Delegate to _scan_string with is_raw=true, but fix up the start position
 	var result := _scan_string(line, pos, line_num, true)
-	# Replace the token we just emitted to include the 'r' prefix
-	if _tokens.size() > 0 and _tokens.back().line == line_num:
+	# Prepend the 'r' prefix to the string token _scan_string just emitted. A
+	# multiline raw string (r""" with no closing """ on this line) emits no token
+	# yet, so only rewrite when one was actually added — otherwise we would
+	# corrupt the unrelated preceding token.
+	if _tokens.size() > token_count_before:
 		var last_token = _tokens.back()
 		_tokens[_tokens.size() - 1] = GUTCheckToken.new(
 			last_token.type, "r" + last_token.value, line_num, start)

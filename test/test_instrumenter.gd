@@ -181,6 +181,26 @@ func test_semicolons_inside_escaped_string_not_split():
 		"Escaped quotes inside strings should not confuse semicolon splitting")
 
 
+func test_multiline_executable_trailing_semicolon_statements_all_probed():
+	# A statement that spans physical lines (array literal) followed by
+	# `;`-separated statements on its closing line. Each trailing statement must
+	# get a probe instead of vanishing. Regression: only the first physical line
+	# was instrumented, so bar()/baz() were dropped from coverage.
+	var source = "func foo():\n\tvar x = [\n\t\t1,\n\t\t2,\n\t]; bar(); baz()"
+	var result = _instrumenter.instrument(source, 0)
+	assert_eq(result.probe_count, 3,
+		"all three ;-separated statements should get a probe")
+	# Physical line count must survive the join/split round trip.
+	assert_eq(result.source.split("\n").size(), source.split("\n").size(),
+		"line count must be preserved")
+	# The two trailing statements are probed on the closing physical line.
+	var last_line = result.source.split("\n")[4]
+	assert_eq(last_line.count("GUTCheckCollector.hit(0,"), 2,
+		"bar() and baz() should each be probed on the closing line")
+	assert_string_contains(last_line, "bar()")
+	assert_string_contains(last_line, "baz()")
+
+
 # ---------------------------------------------------------------------------
 # Ternary-if instrumentation
 # ---------------------------------------------------------------------------

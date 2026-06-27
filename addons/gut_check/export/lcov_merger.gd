@@ -132,7 +132,10 @@ func generate_merged() -> String:
 		var br_found := 0
 		var br_hit := 0
 		var br_keys: Array = rec.branches.keys()
-		br_keys.sort()
+		# Keys are "line,block,branch" strings. Sort numerically on each field so
+		# multi-digit ids order correctly ("10,0,2" before "10,0,10"); a plain
+		# string sort would put "10,0,10" first.
+		br_keys.sort_custom(_compare_brda_keys)
 		for key: String in br_keys:
 			var hits: int = rec.branches[key]
 			output.append("BRDA:%s,%d" % [key, hits])
@@ -171,6 +174,18 @@ func write_merged(output_path: String) -> int:
 	file.store_string(content)
 	file.close()
 	return OK
+
+
+## Order two "line,block,branch" BRDA keys by their numeric fields.
+static func _compare_brda_keys(a: String, b: String) -> bool:
+	var pa: PackedStringArray = a.split(",")
+	var pb: PackedStringArray = b.split(",")
+	for i in mini(pa.size(), pb.size()):
+		var ia: int = pa[i].to_int()
+		var ib: int = pb[i].to_int()
+		if ia != ib:
+			return ia < ib
+	return pa.size() < pb.size()
 
 
 ## Clear all parsed records.

@@ -111,6 +111,13 @@ static func parse_lcov_content(content: String, project_path: String = "") -> Di
 			lf = 0
 			lh = 0
 
+	# Flush a final record that lacked a trailing end_of_record line. A normal
+	# record resets current_path to "", so this only fires for a dangling one.
+	if current_path != "" and lf > 0:
+		result[current_path] = float(lh) / float(lf) * 100.0
+		total_lf += lf
+		total_lh += lh
+
 	if total_lf > 0:
 		result["_total_percentage"] = float(total_lh) / float(total_lf) * 100.0
 

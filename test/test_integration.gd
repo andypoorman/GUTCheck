@@ -1864,6 +1864,23 @@ func test_parse_lcov_zero_lines():
 	# LF:0 means the file should not get a percentage entry
 	assert_false(result.has("/p/empty.gd"))
 
+func test_parse_lcov_trailing_record_without_end_of_record():
+	# A final record with no closing end_of_record line must still be counted.
+	var lcov = "SF:/p/a.gd\nLF:10\nLH:5\n"
+	var result = GUTCheckCoverageComputer.parse_lcov_content(lcov)
+	assert_true(result.has("/p/a.gd"), "Dangling final record should be parsed")
+	assert_almost_eq(result["/p/a.gd"], 50.0, 0.01)
+	assert_almost_eq(result["_total_percentage"], 50.0, 0.01)
+
+func test_parse_lcov_mixed_terminated_and_dangling_records():
+	# First record closes normally; the second omits end_of_record. Both count.
+	var lcov = "SF:/p/a.gd\nLF:10\nLH:10\nend_of_record\nSF:/p/b.gd\nLF:10\nLH:0\n"
+	var result = GUTCheckCoverageComputer.parse_lcov_content(lcov)
+	assert_almost_eq(result["/p/a.gd"], 100.0, 0.01)
+	assert_true(result.has("/p/b.gd"), "Dangling trailing record should be parsed")
+	assert_almost_eq(result["/p/b.gd"], 0.0, 0.01)
+	assert_almost_eq(result["_total_percentage"], 50.0, 0.01)  # 10 of 20
+
 
 # ---------------------------------------------------------------------------
 # compute_script_coverage — build a ScriptMap with known probes

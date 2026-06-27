@@ -28,6 +28,19 @@ func _hits(probe_id: int) -> int:
 	return GUTCheckCollector.get_hits()[SID][probe_id]
 
 
+## A custom iterable GUTCheck can't size — exercises the non-empty fallback.
+class _CustomIter:
+	var _n := 0
+	func _iter_init(_arg) -> bool:
+		_n = 0
+		return _n < 2
+	func _iter_next(_arg) -> bool:
+		_n += 1
+		return _n < 2
+	func _iter_get(_arg) -> int:
+		return _n
+
+
 # ===========================================================================
 # hit_br2()
 # ===========================================================================
@@ -168,12 +181,50 @@ func test_hit_br2rng_fires_false_pid_for_empty_string():
 	assert_eq(_hits(2), 1, "False probe should fire for empty string")
 
 
-func test_hit_br2rng_unknown_type_treated_as_non_empty():
-	# An integer is not Array/Dict/String — falls through to the else branch
-	# which assumes non-empty (true_pid fires)
+func test_hit_br2rng_fires_true_pid_for_positive_int():
+	# `for i in 5` iterates range(5) — a positive count is non-empty.
 	GUTCheckCollector.enable()
-	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, 42)
-	assert_eq(_hits(1), 1, "Unknown types should be treated as non-empty")
+	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, 5)
+	assert_eq(_hits(1), 1, "Positive int count should fire true probe")
+	assert_eq(_hits(2), 0)
+
+
+func test_hit_br2rng_fires_false_pid_for_zero_int():
+	# `for i in 0` iterates nothing — the loop body never runs (empty branch).
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, 0)
+	assert_eq(_hits(1), 0, "Zero int count should not fire true probe")
+	assert_eq(_hits(2), 1, "Zero int count should fire false probe")
+
+
+func test_hit_br2rng_fires_false_pid_for_negative_int():
+	# `for i in -3` iterates nothing.
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, -3)
+	assert_eq(_hits(1), 0, "Negative int count should not fire true probe")
+	assert_eq(_hits(2), 1, "Negative int count should fire false probe")
+
+
+func test_hit_br2rng_fires_true_pid_for_positive_float():
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, 2.5)
+	assert_eq(_hits(1), 1, "Positive float count should fire true probe")
+	assert_eq(_hits(2), 0)
+
+
+func test_hit_br2rng_fires_false_pid_for_zero_float():
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, 0.0)
+	assert_eq(_hits(1), 0, "Zero float count should not fire true probe")
+	assert_eq(_hits(2), 1, "Zero float count should fire false probe")
+
+
+func test_hit_br2rng_unknown_iterable_treated_as_non_empty():
+	# A value GUTCheck can't size (custom iterator, generator) falls through to
+	# the non-empty assumption — Godot simply skips the body if it is empty.
+	GUTCheckCollector.enable()
+	GUTCheckCollector.hit_br2rng(SID, 0, 1, 2, _CustomIter.new())
+	assert_eq(_hits(1), 1, "Unknown iterables should be treated as non-empty")
 	assert_eq(_hits(2), 0)
 
 

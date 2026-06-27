@@ -340,6 +340,29 @@ func test_raw_string_single_quote():
 	assert_eq(meaningful[0].value, "r'hello\\nworld'")
 
 
+func test_raw_string_single_line_triple_quoted():
+	# A raw triple-quoted string that closes on the same line keeps its r prefix.
+	var tokens = _tokenizer.tokenize('r"""hi"""')
+	var meaningful = _strip_structure(tokens)
+	assert_eq(meaningful.size(), 1)
+	assert_eq(meaningful[0].type, GUTCheckToken.Type.STRING)
+	assert_eq(meaningful[0].value, 'r"""hi"""')
+
+
+func test_raw_string_multiline_does_not_corrupt_preceding_token():
+	# A multiline raw string (r""" with no closing """ on its opening line) emits
+	# no token yet, so the r-prefix fixup must not latch onto the unrelated
+	# preceding token. Regression: the `=` operator became `r=`.
+	var source = 'var doc = r"""\nline one\nline two\n"""'
+	var tokens = _tokenizer.tokenize(source)
+	var meaningful = _strip_structure(tokens)
+	var values: Array = []
+	for t in meaningful:
+		values.append(t.value)
+	assert_does_not_have(values, "r=", "r-prefix must not corrupt the '=' token")
+	assert_has(values, "=", "assignment operator should remain intact")
+
+
 # ---------------------------------------------------------------------------
 # Triple-quoted / multiline strings
 # ---------------------------------------------------------------------------
