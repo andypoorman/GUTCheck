@@ -245,6 +245,22 @@ end_of_record
 	assert_string_contains(result, "BRH:2")
 
 
+func test_merge_brda_records_sort_numerically():
+	# Branch ids past 9 must order numerically, not lexically: a plain string
+	# sort would place "10,0,10" before "10,0,2".
+	var lcov := "TN:\nSF:/a.gd\n" \
+		+ "BRDA:10,0,2,1\nBRDA:10,0,10,1\nBRDA:10,0,1,1\n" \
+		+ "DA:10,1\nLF:1\nLH:1\nend_of_record\n"
+	var merger := GUTCheckLcovMerger.new()
+	merger.add_content(lcov)
+	var result := merger.generate_merged()
+	var i1 := result.find("BRDA:10,0,1,")
+	var i2 := result.find("BRDA:10,0,2,")
+	var i10 := result.find("BRDA:10,0,10,")
+	assert_gt(i2, i1, "branch 2 should be emitted after branch 1")
+	assert_gt(i10, i2, "branch 10 should be emitted after branch 2 (numeric order)")
+
+
 func test_merge_clear():
 	var merger := GUTCheckLcovMerger.new()
 	merger.add_content("TN:\nSF:/a.gd\nDA:1,5\nLF:1\nLH:1\nend_of_record\n")

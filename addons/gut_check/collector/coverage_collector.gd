@@ -114,6 +114,10 @@ static func br2rng(script_id: int, true_pid: int, false_pid: int, value: Variant
 
 
 static func _is_non_empty_iterable(value: Variant) -> bool:
+	# Integer/float counts: `for i in 5` iterates range(5); `for i in 0` or any
+	# non-positive count iterates nothing. Empty unless the count is > 0.
+	if value is int or value is float:
+		return value > 0
 	if value is Array or value is PackedByteArray or value is PackedInt32Array \
 			or value is PackedInt64Array or value is PackedFloat32Array \
 			or value is PackedFloat64Array or value is PackedStringArray \

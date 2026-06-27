@@ -78,7 +78,16 @@ func instrument(source: String, script_id: int, script_path: String = "", conser
 		# Attribute this line's line-probe allocations to line_num.
 		allocator.begin_line(line_num)
 
-		if span <= 1 or not _spans_are_instrumentable(line_info.type):
+		# A plain executable normally just gets a probe prepended to its first
+		# physical line, so a multiline span needs no join. The exception is a
+		# multi-statement line (`var x = [\n...\n]; bar(); baz()`): its trailing
+		# `;`-separated statements live on a later physical line and would vanish
+		# unless we join the span to reach them. Route those through the same
+		# join/split path as the genuinely-spanning wrappers.
+		var needs_span_join := _spans_are_instrumentable(line_info.type) \
+			or (line_info.type == GUTCheckScriptMap.LineType.EXECUTABLE \
+				and line_info.statement_count > 1)
+		if span <= 1 or not needs_span_join:
 			# Single-line statements, and multiline statements whose wrapper
 			# only touches the first physical line (plain executables get a
 			# probe prepended; the rest of the statement is unchanged).
@@ -87,12 +96,13 @@ func instrument(source: String, script_id: int, script_path: String = "", conser
 				line_info.statement_count, branch_probes, line_info.has_inline_body)
 			continue
 
-		# Compound statements spanning physical lines (parenthesized or
-		# backslash-continued headers): join the span, instrument the whole
-		# logical statement, and split back. Wrappers only insert text, so the
-		# physical line count must survive the round trip — if it doesn't,
-		# abandon the statement AND roll back the ids the wrapper just allocated,
-		# so the discarded text leaves no orphaned probe behind.
+		# Statements spanning physical lines — a branch/loop header wrapped across
+		# lines, or a multi-statement executable whose trailing `;` parts sit on a
+		# later line: join the span, instrument the whole logical statement, and
+		# split back. Wrappers only insert text, so the physical line count must
+		# survive the round trip — if it doesn't, abandon the statement AND roll
+		# back the ids the wrapper just allocated, so the discarded text leaves no
+		# orphaned probe behind.
 		var sp := allocator.savepoint()
 		var joined := "\n".join(lines.slice(i, i + span))
 		var instrumented := GUTCheckProbeInjector.instrument_line(
