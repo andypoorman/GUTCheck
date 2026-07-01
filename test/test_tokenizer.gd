@@ -381,6 +381,27 @@ func test_triple_quoted_single_quote_multiline():
 	assert_gt(strings.size(), 0, "Should handle single-quote triple-quoted strings")
 
 
+func test_unterminated_multiline_string_sets_flag():
+	# A """ that never closes swallows the rest of the file as string content.
+	# That must be surfaced (flag + push_warning), not silently accepted.
+	var source = 'func foo():\n\tvar doc = """\nnever closed\nvar hidden = 1'
+	_tokenizer.tokenize(source)
+	assert_true(_tokenizer.unterminated_multiline_string,
+		"Unclosed triple quote must set unterminated_multiline_string")
+
+
+func test_terminated_multiline_string_does_not_set_flag():
+	_tokenizer.tokenize('var doc = """\nclosed\n"""')
+	assert_false(_tokenizer.unterminated_multiline_string)
+
+
+func test_unterminated_flag_resets_between_tokenize_calls():
+	_tokenizer.tokenize('var doc = """\nnever closed')
+	_tokenizer.tokenize("var ok = 1")
+	assert_false(_tokenizer.unterminated_multiline_string,
+		"Flag must reset at the start of each tokenize() call")
+
+
 func test_triple_quoted_with_code_after_close():
 	# Code after closing triple-quote on the same line
 	var source = '"""\nhello\n""".strip_edges()'

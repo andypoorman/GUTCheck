@@ -1,6 +1,6 @@
 {
   "source_dirs": ["res://addons/gut_check/"],
-  "exclude_patterns": ["**/hooks/**"],
+  "exclude_patterns": ["**/hooks/**", "**/gut_check_plugin.gd"],
   "lcov_output": "res://coverage.lcov",
   "coverage_target": 0
 }

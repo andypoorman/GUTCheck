@@ -10,6 +10,12 @@ var _tokens: Array
 # Multiline state
 var _in_multiline_string: bool = false
 var _multiline_quote_char: String = ""
+var _multiline_start_line: int = 0
+
+## True when the last tokenize() call ended inside a multiline string that was
+## never closed. Everything after the opening triple quote tokenized as string
+## content, so those lines are invisible to classification and coverage.
+var unterminated_multiline_string: bool = false
 
 # Indentation
 var _indent_stack: Array[int] = [0]
@@ -28,9 +34,16 @@ func tokenize(source: String) -> Array:
 	_in_multiline_string = false
 	_continuation = false
 	_bracket_depth = 0
+	unterminated_multiline_string = false
 
 	for i in range(_lines.size()):
 		_tokenize_line(i)
+
+	if _in_multiline_string:
+		unterminated_multiline_string = true
+		push_warning(
+			"GUTCheck: unterminated multiline string opened at line %d — code after it is not classified for coverage"
+			% _multiline_start_line)
 
 	# Emit remaining DEDENTs
 	while _indent_stack.size() > 1:
@@ -274,6 +287,7 @@ func _scan_triple_quoted_string(line: String, pos: int, line_num: int, quote: St
 	# Multiline string - store state and consume rest of line
 	_in_multiline_string = true
 	_multiline_quote_char = quote
+	_multiline_start_line = line_num
 	# Don't emit token yet - will emit when we find the closing triple-quote
 	return line.length()
 
