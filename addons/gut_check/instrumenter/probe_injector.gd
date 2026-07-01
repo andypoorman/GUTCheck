@@ -315,6 +315,13 @@ static func _find_matching_else(content: String, search_start: int) -> int:
 				nesting -= 1
 				pos += 4
 				continue
+			if c == ":":
+				# A block colon at ternary depth 0 means this "if" heads a block
+				# statement (e.g. control flow inside a bracket-nested lambda
+				# argument that merged into this logical line), not a ternary
+				# expression. Bail so wrap_ternary never wraps it — otherwise it
+				# emits `br2(..., cond: body)`, which does not parse.
+				return -1
 		pos += 1
 
 	return -1
