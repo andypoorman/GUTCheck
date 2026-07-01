@@ -402,3 +402,50 @@ func test_probe_injector_instrument_line_branch_else_returns_line():
 	var result = GUTCheckProbeInjector.instrument_line(
 		line, GUTCheckScriptMap.LineType.BRANCH_ELSE, 0, alloc)
 	assert_eq(result, line)
+
+
+# ---------------------------------------------------------------------------
+# Probe allocator savepoint/rollback
+# ---------------------------------------------------------------------------
+
+func test_rollback_discards_probes_and_branches_after_savepoint():
+	var alloc = GUTCheckProbeAllocator.new()
+	alloc.begin_line(1)
+	alloc.line()
+	var pre_branch = GUTCheckBranchInfo.new(1, 0, 0, -1, true)
+	alloc.branch(pre_branch)
+	var sp = alloc.savepoint()
+	alloc.begin_line(2)
+	alloc.line()
+	alloc.branch(GUTCheckBranchInfo.new(2, 0, 0, -1, true))
+	alloc.rollback_to(sp)
+	assert_eq(alloc.probe_count, 2, "probe ids allocated after the savepoint are undone")
+	assert_false(alloc.probe_to_line.has(2), "rolled-back line probe is unmapped")
+	assert_eq(alloc.branches.size(), 1, "only the pre-savepoint branch survives")
+	assert_eq(alloc.branches[0], pre_branch)
+
+
+func test_rollback_discards_derived_branch():
+	# A derived (block else/pattern) branch allocates no probe id and carries
+	# probe_id -1, so neither probe_count nor a probe-id filter can see it —
+	# rollback must trim by list position, or resolve_derived would later bind
+	# the abandoned branch to whatever probed line happens to follow.
+	var alloc = GUTCheckProbeAllocator.new()
+	alloc.begin_line(1)
+	alloc.line()
+	var sp = alloc.savepoint()
+	alloc.derive_branch(GUTCheckBranchInfo.new(3, 0, 1, -1, false))
+	alloc.rollback_to(sp)
+	assert_eq(alloc.branches.size(), 0,
+		"a derived branch registered after the savepoint must not survive rollback")
+
+
+func test_rollback_keeps_derived_branch_registered_before_savepoint():
+	var alloc = GUTCheckProbeAllocator.new()
+	alloc.derive_branch(GUTCheckBranchInfo.new(3, 0, 1, -1, false))
+	var sp = alloc.savepoint()
+	alloc.begin_line(4)
+	alloc.line()
+	alloc.rollback_to(sp)
+	assert_eq(alloc.branches.size(), 1, "pre-savepoint derived branch survives")
+	assert_eq(alloc.probe_count, 0, "post-savepoint line probe is undone")

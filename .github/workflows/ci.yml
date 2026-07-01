@@ -11,17 +11,21 @@ concurrency:
 
 jobs:
   test:
-    name: Test & Coverage
+    name: Test & Coverage (Godot ${{ matrix.godot }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        godot: ["4.6.2", "4.7.0"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Godot
         uses: chickensoft-games/setup-godot@v2
         with:
-          version: "4.6.2"
+          version: ${{ matrix.godot }}
           use-dotnet: false
 
       - name: Install GUT
@@ -40,7 +44,8 @@ jobs:
             -gconfig=.gutconfig.ci.json
 
       - name: Upload coverage to Codecov
-        if: always()
+        # One leg uploads; coverage is identical across Godot versions.
+        if: always() && matrix.godot == '4.6.2'
         uses: codecov/codecov-action@v5
         with:
           files: coverage.lcov

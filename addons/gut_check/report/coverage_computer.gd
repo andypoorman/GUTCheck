@@ -6,8 +6,6 @@ class_name GUTCheckCoverageComputer
 ## Compute line, branch, and function coverage for a single script.
 static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dictionary:
 	var context := build_script_context(script_map, hits)
-	var line_probes: Dictionary = context.line_probes
-	var branch_line_hits: Dictionary = context.branch_line_hits
 
 	# Executable lines plus branch-only lines (else:, match arms), so the console
 	# summary matches the LCOV/Cobertura output. See collect_da_lines.
@@ -18,7 +16,7 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	var uncovered_lines: Array[int] = []
 
 	for ln in all_da_lines:
-		var hit_count := get_line_hit_count(ln, line_probes, hits, branch_line_hits)
+		var hit_count := context_line_hit_count(ln, context, hits)
 		if hit_count > 0:
 			lines_hit += 1
 		else:
@@ -263,6 +261,13 @@ static func function_search_start(func_info) -> int:
 	return func_info.start_line
 
 
+## get_line_hit_count with the probe structures read straight out of a
+## build_script_context() dictionary — the form every context-holding caller
+## wants, so they don't each unpack line_probes/branch_line_hits locally.
+static func context_line_hit_count(line_num: int, context: Dictionary, hits: PackedInt32Array) -> int:
+	return get_line_hit_count(line_num, context.line_probes, hits, context.branch_line_hits)
+
+
 ## Hit count for a function: the hit count of its first executable line within
 ## the function's range (see function_search_start). Shared by the report
 ## computer and the LCOV exporter so funcs_hit and FNDA agree.
@@ -270,7 +275,7 @@ static func function_hit_count(func_info, context: Dictionary, hits: PackedInt32
 	var search_start := function_search_start(func_info)
 	for ln: int in context.exec_lines:
 		if ln >= search_start and (func_info.end_line == -1 or ln <= func_info.end_line):
-			return get_line_hit_count(ln, context.line_probes, hits, context.branch_line_hits)
+			return context_line_hit_count(ln, context, hits)
 	return 0
 
 

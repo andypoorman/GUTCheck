@@ -149,25 +149,28 @@ static func _is_derived_branch(map, info) -> bool:
 
 
 ## Mark a point to roll back to. See rollback_to().
-func savepoint() -> int:
-	return probe_count
+func savepoint() -> Dictionary:
+	return {
+		"probes": probe_count,
+		"branches": branches.size(),
+		"derived": _derived.size(),
+	}
 
 
 ## Undo every allocation made since `sp`. The instrumenter calls this when a
 ## multiline statement is wrapped, fails the physical-line-count round trip, and
 ## is abandoned — without it the ids embedded in the discarded string would
 ## survive in the map as orphans, the very thing inject-time allocation prevents.
-func rollback_to(sp: int) -> void:
-	if probe_count <= sp:
-		return
-	for pid in range(sp, probe_count):
+## branches and _derived are append-only during the injection walk, so
+## truncating to the savepoint sizes discards exactly the abandoned entries —
+## including derived branches, whose probe_id of -1 a probe-id filter would
+## miss (and which allocate no probe, so probe_count alone can't see them).
+func rollback_to(sp: Dictionary) -> void:
+	for pid in range(sp.probes, probe_count):
 		probe_to_line.erase(pid)
-	var kept: Array = []
-	for b in branches:
-		if b.probe_id < sp:
-			kept.append(b)
-	branches = kept
-	probe_count = sp
+	probe_count = sp.probes
+	branches.resize(sp.branches)
+	_derived.resize(sp.derived)
 
 
 ## Batch numbering for a fully-structured map that is NOT being injected (a

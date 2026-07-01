@@ -139,18 +139,14 @@ func _emit_class(xml: PackedStringArray, path: String, script_map, hits: PackedI
 func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
 	var name: String = GUTCheckCoverageComputer.qualified_func_name(func_info)
 
-	var exec_lines: Array[int] = context.exec_lines
-	var line_probes: Dictionary = context.line_probes
-	var branch_line_hits: Dictionary = context.branch_line_hits
-
 	xml.append('            <method name="%s" signature="" line-rate="0" branch-rate="0" complexity="0">' % _escape_xml(name))
 	xml.append('              <lines>')
 
 	var search_start := GUTCheckCoverageComputer.function_search_start(func_info)
-	for line_num in exec_lines:
+	for line_num in context.exec_lines:
 		if line_num >= search_start and (func_info.end_line == -1 or line_num <= func_info.end_line):
-			var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
-				line_num, line_probes, hits, branch_line_hits)
+			var hit_count := GUTCheckCoverageComputer.context_line_hit_count(
+				line_num, context, hits)
 			var branch_data := _get_branch_data_for_line(line_num, script_map, hits)
 			_emit_line_element(xml, line_num, hit_count, branch_data, "                ")
 
@@ -159,14 +155,11 @@ func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt
 
 
 func _emit_lines(xml: PackedStringArray, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
-	var line_probes: Dictionary = context.line_probes
-	var branch_line_hits: Dictionary = context.branch_line_hits
-
 	# Executable lines + branch-only lines (else:, match arms), matching LCOV and
 	# the console summary so the formats agree on the line set. See collect_da_lines.
 	for line_num in context.da_lines:
-		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
-			line_num, line_probes, hits, branch_line_hits)
+		var hit_count := GUTCheckCoverageComputer.context_line_hit_count(
+			line_num, context, hits)
 		var branch_data := _get_branch_data_for_line(line_num, script_map, hits)
 		_emit_line_element(xml, line_num, hit_count, branch_data, "            ")
 
@@ -209,14 +202,12 @@ func _get_branch_data_for_line(line_num: int, script_map, hits: PackedInt32Array
 
 
 func _compute_script_stats(hits: PackedInt32Array, context: Dictionary) -> Dictionary:
-	var line_probes: Dictionary = context.line_probes
-	var branch_line_hits: Dictionary = context.branch_line_hits
 	# Match LCOV/console: count executable + branch-only lines. See collect_da_lines.
 	var da_lines: Array[int] = context.da_lines
 	var lines_valid: int = da_lines.size()
 	var lines_covered := 0
 	for ln in da_lines:
-		if GUTCheckCoverageComputer.get_line_hit_count(ln, line_probes, hits, branch_line_hits) > 0:
+		if GUTCheckCoverageComputer.context_line_hit_count(ln, context, hits) > 0:
 			lines_covered += 1
 
 	var script_map = context.get("script_map")

@@ -106,16 +106,12 @@ func _emit_branch_records(lines: PackedStringArray, script_map, hits: PackedInt3
 func _emit_line_records(lines: PackedStringArray, hits: PackedInt32Array, context: Dictionary) -> void:
 	var lines_found := 0
 	var lines_hit := 0
-	var line_probes: Dictionary = context.line_probes
-	var branch_line_hits: Dictionary = context.branch_line_hits
 
 	# Executable lines + branch-only lines (else:, match arms). LCOV requires a
 	# DA record for every line that has a BRDA record. See collect_da_lines.
-	var all_da_lines: Array[int] = context.da_lines
-
-	for line_num in all_da_lines:
-		var hit_count := GUTCheckCoverageComputer.get_line_hit_count(
-			line_num, line_probes, hits, branch_line_hits)
+	for line_num in context.da_lines:
+		var hit_count := GUTCheckCoverageComputer.context_line_hit_count(
+			line_num, context, hits)
 		lines.append("DA:%d,%d" % [line_num, hit_count])
 		lines_found += 1
 		if hit_count > 0:
