@@ -8,7 +8,7 @@ class_name GUTCheckCoberturaExporter
 ## Export coverage data to a Cobertura XML file. Returns OK on success.
 func export_cobertura(output_path: String, source_root: String = "") -> int:
 	var content := generate_cobertura(source_root)
-	return _write_file(output_path, content)
+	return GUTCheckPathUtil.write_file(output_path, content)
 
 
 ## Generate the Cobertura XML string without writing to disk.
@@ -91,7 +91,7 @@ func generate_cobertura(source_root: String = "") -> String:
 			pkg_branches_valid += stats.branches_valid
 			pkg_branches_covered += stats.branches_covered
 
-		var pkg_name := dir.replace("res://", "").replace("/", ".")
+		var pkg_name := GUTCheckPathUtil.strip_res_prefix(dir).replace("/", ".")
 		if pkg_name == "":
 			pkg_name = "."
 
@@ -115,7 +115,7 @@ func generate_cobertura(source_root: String = "") -> String:
 
 func _emit_class(xml: PackedStringArray, path: String, script_map, hits: PackedInt32Array, context: Dictionary, stats: Dictionary) -> void:
 	var class_name_str := path.get_file().get_basename()
-	var filename := _to_relative_path(path)
+	var filename := GUTCheckPathUtil.strip_res_prefix(path)
 
 	xml.append('        <class name="%s" filename="%s" line-rate="%s" branch-rate="%s" complexity="0">' % [
 		_escape_xml(class_name_str), _escape_xml(filename),
@@ -137,9 +137,7 @@ func _emit_class(xml: PackedStringArray, path: String, script_map, hits: PackedI
 
 
 func _emit_method(xml: PackedStringArray, func_info, script_map, hits: PackedInt32Array, context: Dictionary) -> void:
-	var name: String = func_info.name
-	if func_info.cls_name != "":
-		name = "%s.%s" % [func_info.cls_name, func_info.name]
+	var name: String = GUTCheckCoverageComputer.qualified_func_name(func_info)
 
 	var exec_lines: Array[int] = context.exec_lines
 	var line_probes: Dictionary = context.line_probes
@@ -179,9 +177,9 @@ func _emit_line_element(xml: PackedStringArray, line_num: int, hit_count: int, b
 	else:
 		var covered: int = branch_data.covered
 		var total: int = branch_data.total
-		var pct := int(float(covered) / float(total) * 100.0) if total > 0 else 0
+		var cond_pct := int(GUTCheckCoverageComputer.pct(covered, total))
 		xml.append('%s<line number="%d" hits="%d" branch="true" condition-coverage="%d%% (%d/%d)">' % [
-			indent, line_num, hit_count, pct, covered, total])
+			indent, line_num, hit_count, cond_pct, covered, total])
 		xml.append('%s  <conditions>' % indent)
 		for i in range(branch_data.conditions.size()):
 			var cond: Dictionary = branch_data.conditions[i]
@@ -242,20 +240,5 @@ func _rate(covered: int, total: int) -> String:
 	return "%.4f" % (float(covered) / float(total))
 
 
-func _to_relative_path(res_path: String) -> String:
-	if res_path.begins_with("res://"):
-		return res_path.substr(6)
-	return res_path
-
-
 func _escape_xml(text: String) -> String:
 	return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
-
-
-func _write_file(path: String, content: String) -> int:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		return FileAccess.get_open_error()
-	file.store_string(content)
-	file.close()
-	return OK

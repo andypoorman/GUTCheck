@@ -954,15 +954,14 @@ func test_lcov_exporter_to_absolute_path_passthrough():
 	assert_eq(exporter._to_absolute_path("/tmp/abs.gd"), "/tmp/abs.gd")
 
 
-func test_lcov_exporter_qualified_func_name_with_class_prefix():
+func test_qualified_func_name_with_class_prefix():
 	var func_info := GUTCheckFunctionInfo.new("foo", 5, "Inner")
-	var exporter := GUTCheckLcovExporter.new()
-	assert_eq(exporter._qualified_func_name(func_info), "Inner.foo")
+	assert_eq(GUTCheckCoverageComputer.qualified_func_name(func_info), "Inner.foo")
 
 
-func test_cobertura_to_relative_path_passthrough_for_non_res():
-	var exporter := GUTCheckCoberturaExporter.new()
-	assert_eq(exporter._to_relative_path("/tmp/abs.gd"), "/tmp/abs.gd")
+func test_qualified_func_name_without_class_prefix():
+	var func_info := GUTCheckFunctionInfo.new("bar", 3, "")
+	assert_eq(GUTCheckCoverageComputer.qualified_func_name(func_info), "bar")
 
 
 func test_cobertura_rate_zero_total_returns_zero():
@@ -1880,6 +1879,23 @@ func test_parse_lcov_mixed_terminated_and_dangling_records():
 	assert_true(result.has("/p/b.gd"), "Dangling trailing record should be parsed")
 	assert_almost_eq(result["/p/b.gd"], 0.0, 0.01)
 	assert_almost_eq(result["_total_percentage"], 50.0, 0.01)  # 10 of 20
+
+
+# ---------------------------------------------------------------------------
+# pct
+# ---------------------------------------------------------------------------
+
+func test_pct_basic():
+	assert_almost_eq(GUTCheckCoverageComputer.pct(1, 2), 50.0, 0.01)
+	assert_almost_eq(GUTCheckCoverageComputer.pct(3, 4), 75.0, 0.01)
+
+func test_pct_full():
+	assert_almost_eq(GUTCheckCoverageComputer.pct(10, 10), 100.0, 0.01)
+
+func test_pct_zero_total_returns_default():
+	assert_eq(GUTCheckCoverageComputer.pct(0, 0), 0.0)
+	assert_eq(GUTCheckCoverageComputer.pct(5, 0, 100.0), 100.0,
+		"default_val is returned when total is zero")
 
 
 # ---------------------------------------------------------------------------
