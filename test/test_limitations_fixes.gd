@@ -5,6 +5,7 @@ extends GutTest
 ##   3. Path-based probe runtime detection (no filename collisions)
 ##   4. LCOV merge
 ##   5. Lambda function coverage
+##   6. Block control flow inside a lambda passed as a call argument
 
 
 # ---------------------------------------------------------------------------
@@ -410,3 +411,133 @@ func test_single_line_lambda_no_extra_scope():
 			"Inline single-line lambda must not register a function scope")
 	assert_eq(result.script_map.functions.size(), 1,
 		"Only the enclosing func should be registered")
+
+
+# ---------------------------------------------------------------------------
+# 6. Block control flow inside a lambda passed as a call argument
+#    Regression: a bracket-continued call whose lambda argument body holds a
+#    block `if ... else:` merged into one logical line. The block if/else was
+#    miscounted as a ternary (_count_ternary_expressions was colon-blind) and
+#    wrap_ternary emitted `br2(..., cond: body)` — invalid GDScript that failed
+#    the whole file's compile. A real ternary reaches its else with no depth-0
+#    block colon; the block form has one.
+# ---------------------------------------------------------------------------
+
+func _instrumented_compiles(source: String) -> bool:
+	## Instrument `source` and report whether the result compiles — the strongest
+	## guard against the injector emitting syntactically invalid GDScript.
+	var instrumenter := GUTCheckInstrumenter.new()
+	var result := instrumenter.instrument(source, 0, "res://test.gd")
+	var gd := GDScript.new()
+	gd.source_code = result.source
+	return gd.reload() == OK
+
+
+# Sources below keep a trailing statement after the lambda-call: a multi-line
+# lambda as a function's FINAL statement is a separate GDScript parser quirk
+# (the raw source won't compile), so a trailing line keeps the input valid —
+# matching real code like a for-loop body that calls tween_callback then does more.
+
+func test_lambda_arg_block_if_else_still_compiles():
+	var source := "func foo() -> void:\n" + \
+		"\tvar flag := true\n" + \
+		"\tvar runner := func(cb: Callable) -> void: cb.call()\n" + \
+		"\trunner.call(\n" + \
+		"\t\tfunc() -> void:\n" + \
+		"\t\t\tif flag:\n" + \
+		"\t\t\t\tprint(\"a\")\n" + \
+		"\t\t\telse:\n" + \
+		"\t\t\t\tprint(\"b\")\n" + \
+		"\t)\n" + \
+		"\tprint(\"done\")"
+	var raw := GDScript.new()
+	raw.source_code = source
+	assert_eq(raw.reload(), OK, "precondition: raw source must be valid GDScript")
+	assert_true(_instrumented_compiles(source),
+		"Instrumented lambda-as-arg with a block if/else must compile")
+
+
+func test_lambda_arg_block_if_else_not_classified_ternary():
+	## The merged bracket-continued logical line must not be typed
+	## EXECUTABLE_TERNARY — the lambda body's if/else is control flow.
+	var source := "func foo() -> void:\n" + \
+		"\tvar flag := true\n" + \
+		"\tvar runner := func(cb: Callable) -> void: cb.call()\n" + \
+		"\trunner.call(\n" + \
+		"\t\tfunc() -> void:\n" + \
+		"\t\t\tif flag:\n" + \
+		"\t\t\t\tprint(\"a\")\n" + \
+		"\t\t\telse:\n" + \
+		"\t\t\t\tprint(\"b\")\n" + \
+		"\t)\n" + \
+		"\tprint(\"done\")"
+	var tokenizer := GUTCheckTokenizer.new()
+	var classifier := GUTCheckLineClassifier.new()
+	var script_map := classifier.classify(tokenizer.tokenize(source), "res://test.gd")
+	assert_true(script_map.lines.has(4), "Call statement (line 4) should be classified")
+	if script_map.lines.has(4):
+		assert_ne(script_map.lines[4].type,
+			GUTCheckScriptMap.LineType.EXECUTABLE_TERNARY,
+			"Block if/else inside a lambda argument must not be read as a ternary")
+
+
+func test_genuine_ternary_still_wrapped():
+	## Guard against over-correction: a real ternary must still be wrapped.
+	var source := "func foo() -> void:\n\tvar x := 1 if 2 > 1 else 3"
+	var instrumenter := GUTCheckInstrumenter.new()
+	var result := instrumenter.instrument(source, 0, "res://test.gd")
+	assert_string_contains(result.source, "GUTCheckCollector.br2(",
+		"A genuine ternary must still be wrapped with br2()")
+	assert_true(_instrumented_compiles(source), "Ternary instrumentation must compile")
+
+
+func test_ternary_inside_lambda_arg_compiles():
+	## Mixed case: a genuine ternary inside a bracket-nested lambda argument body.
+	## The block `if` is left alone; the ternary is wrapped; the result compiles.
+	var source := "func foo() -> void:\n" + \
+		"\tvar flag := true\n" + \
+		"\tvar x := 0\n" + \
+		"\tvar runner := func(cb: Callable) -> void: cb.call()\n" + \
+		"\trunner.call(\n" + \
+		"\t\tfunc() -> void:\n" + \
+		"\t\t\tif flag:\n" + \
+		"\t\t\t\tx = 1 if 2 > 1 else 3\n" + \
+		"\t)\n" + \
+		"\tprint(x)"
+	var raw := GDScript.new()
+	raw.source_code = source
+	assert_eq(raw.reload(), OK, "precondition: raw source must be valid GDScript")
+	assert_true(_instrumented_compiles(source),
+		"A ternary inside a bracket-nested lambda argument must compile")
+
+
+func test_block_if_else_with_ternary_in_lambda_arg_compiles():
+	## The case that needs the injector fix: a genuine ternary FOLLOWED BY a block
+	## `if ... else:` (with else), both inside the same bracket-nested lambda
+	## argument. The real ternary makes the merged line EXECUTABLE_TERNARY, so
+	## wrap_ternary runs. It processes if-positions right-to-left, so the LAST one
+	## — here the block `if` — is the one it tries to wrap first; without
+	## _find_matching_else bailing on the block colon it pairs that block `if` with
+	## its block `else` and emits `br2(..., flag: body)`, a parse error. The
+	## ordering matters: a ternary AFTER the block if is masked by wrap_ternary's
+	## probe-budget, so this test deliberately puts the ternary first.
+	var source := "func foo() -> void:\n" + \
+		"\tvar flag := true\n" + \
+		"\tvar a := true\n" + \
+		"\tvar x := 0\n" + \
+		"\tvar y := 0\n" + \
+		"\tvar runner := func(cb: Callable) -> void: cb.call()\n" + \
+		"\trunner.call(\n" + \
+		"\t\tfunc() -> void:\n" + \
+		"\t\t\tx = 1 if a else 2\n" + \
+		"\t\t\tif flag:\n" + \
+		"\t\t\t\ty = 1\n" + \
+		"\t\t\telse:\n" + \
+		"\t\t\t\ty = 2\n" + \
+		"\t)\n" + \
+		"\tprint(x + y)"
+	var raw := GDScript.new()
+	raw.source_code = source
+	assert_eq(raw.reload(), OK, "precondition: raw source must be valid GDScript")
+	assert_true(_instrumented_compiles(source),
+		"Ternary followed by a block if/else inside a lambda argument must compile")

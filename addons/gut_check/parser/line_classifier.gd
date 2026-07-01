@@ -329,19 +329,35 @@ func _is_property_accessor(tokens: Array) -> bool:
 func _count_ternary_expressions(tokens: Array) -> int:
 	## Count inline ternary-if expressions (value if condition else other).
 	## A ternary `if` is any KW_IF that is not the first keyword on the line
-	## (i.e. not a statement-level if). We count matching if/else pairs at
-	## depth 0 that are preceded by a non-keyword expression token.
+	## (i.e. not a statement-level if) and reaches its matching KW_ELSE with NO
+	## block colon at the if's own group depth in between: a ternary is a pure
+	## expression, whereas a block `if cond:` has a depth-0 colon after its
+	## condition. This distinction matters because a bracket-continued statement
+	## (e.g. a multiline lambda passed as a call argument) merges its whole body
+	## into one logical line here — the lambda's block `if ... else:` would
+	## otherwise be miscounted as a ternary, and wrap_ternary would emit
+	## `br2(..., cond: body)`, a syntax error that fails the whole file's compile.
 	var count := 0
 	for i in range(1, tokens.size()):
-		if tokens[i].type == GUTCheckToken.Type.KW_IF:
-			# Verify there's a corresponding KW_ELSE after it — true ternaries
-			# always have both if and else. Scan forward for the matching else.
-			for j in range(i + 1, tokens.size()):
-				if tokens[j].type == GUTCheckToken.Type.KW_ELSE:
-					count += 1
-					break
-				# If we hit another KW_IF first, that's a nested ternary — the
-				# outer if's else is still further out. Keep scanning.
+		if tokens[i].type != GUTCheckToken.Type.KW_IF:
+			continue
+		# Scan toward the matching else, tracking group depth relative to this
+		# if. A depth-0 colon means block control flow, not a ternary — abandon.
+		var depth := 0
+		for j in range(i + 1, tokens.size()):
+			var t = tokens[j]
+			if t.is_open_group():
+				depth += 1
+			elif t.is_close_group():
+				depth = maxi(0, depth - 1)
+			elif depth == 0 and t.type == GUTCheckToken.Type.COLON:
+				break
+			elif depth == 0 and t.type == GUTCheckToken.Type.KW_ELSE:
+				# True ternaries always have both if and else. A nested ternary's
+				# inner if/else lives inside this condition's brackets (depth > 0),
+				# so the first depth-0 else is this if's own.
+				count += 1
+				break
 	return count
 
 
