@@ -205,8 +205,7 @@ func print_summary(logger = null) -> void:
 
 	for s in sorted_scripts:
 		var short_path: String = s.path
-		if short_path.begins_with("res://"):
-			short_path = short_path.substr(6)
+		short_path = GUTCheckPathUtil.strip_res_prefix(short_path)
 		if short_path.length() > 40:
 			short_path = "..." + short_path.right(37)
 
@@ -244,8 +243,7 @@ func print_summary(logger = null) -> void:
 			if count >= 5 or s.line_pct >= 50.0:
 				break
 			var short_path: String = s.path
-			if short_path.begins_with("res://"):
-				short_path = short_path.substr(6)
+			short_path = GUTCheckPathUtil.strip_res_prefix(short_path)
 			warn_fn.call("  %5.1f%%  %s" % [s.line_pct, short_path])
 			count += 1
 

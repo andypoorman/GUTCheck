@@ -22,7 +22,7 @@ class_name GUTCheckLcovExporter
 ## Export coverage data to an LCOV tracefile. Returns OK on success.
 func export_lcov(output_path: String, test_name: String = "") -> int:
 	var content := _generate_lcov(test_name)
-	return _write_file(output_path, content)
+	return GUTCheckPathUtil.write_file(output_path, content)
 
 
 ## Generate the LCOV content string without writing to disk.
@@ -67,12 +67,12 @@ func _emit_function_records(lines: PackedStringArray, script_map, hits: PackedIn
 
 	for func_info in script_map.functions:
 		# Emit FN record
-		lines.append("FN:%d,%s" % [func_info.start_line, _qualified_func_name(func_info)])
+		lines.append("FN:%d,%s" % [func_info.start_line, GUTCheckCoverageComputer.qualified_func_name(func_info)])
 
 		# Calculate function hit count: a function is "hit" if any
 		# executable line within it was executed
 		var func_hit_count := _get_function_hit_count(func_info, hits, context)
-		lines.append("FNDA:%d,%s" % [func_hit_count, _qualified_func_name(func_info)])
+		lines.append("FNDA:%d,%s" % [func_hit_count, GUTCheckCoverageComputer.qualified_func_name(func_info)])
 
 		functions_found += 1
 		if func_hit_count > 0:
@@ -130,22 +130,7 @@ func _get_function_hit_count(func_info, hits: PackedInt32Array, context: Diction
 	return GUTCheckCoverageComputer.function_hit_count(func_info, context, hits)
 
 
-func _qualified_func_name(func_info) -> String:
-	if func_info.cls_name != "":
-		return "%s.%s" % [func_info.cls_name, func_info.name]
-	return func_info.name
-
-
 func _to_absolute_path(res_path: String) -> String:
 	if Engine.is_editor_hint() or not res_path.begins_with("res://"):
 		return res_path
 	return ProjectSettings.globalize_path(res_path)
-
-
-func _write_file(path: String, content: String) -> int:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		return FileAccess.get_open_error()
-	file.store_string(content)
-	file.close()
-	return OK

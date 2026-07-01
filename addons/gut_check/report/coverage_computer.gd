@@ -41,13 +41,13 @@ static func compute_script_coverage(script_map, hits: PackedInt32Array) -> Dicti
 	return {
 		"lines_found": lines_found,
 		"lines_hit": lines_hit,
-		"line_pct": _pct(lines_hit, lines_found, 100.0),
+		"line_pct": pct(lines_hit, lines_found, 100.0),
 		"branches_found": branches_found,
 		"branches_hit": branches_hit,
-		"branch_pct": _pct(branches_hit, branches_found, 100.0),
+		"branch_pct": pct(branches_hit, branches_found, 100.0),
 		"funcs_found": funcs_found,
 		"funcs_hit": funcs_hit,
-		"func_pct": _pct(funcs_hit, funcs_found, 100.0),
+		"func_pct": pct(funcs_hit, funcs_found, 100.0),
 		"uncovered_lines": uncovered_lines,
 	}
 
@@ -72,13 +72,13 @@ static func aggregate_coverage(script_reports: Array) -> Dictionary:
 	return {
 		"total_lines_found": total_lines_found,
 		"total_lines_hit": total_lines_hit,
-		"total_line_pct": _pct(total_lines_hit, total_lines_found),
+		"total_line_pct": pct(total_lines_hit, total_lines_found),
 		"total_branches_found": total_branches_found,
 		"total_branches_hit": total_branches_hit,
-		"total_branch_pct": _pct(total_branches_hit, total_branches_found),
+		"total_branch_pct": pct(total_branches_hit, total_branches_found),
 		"total_funcs_found": total_funcs_found,
 		"total_funcs_hit": total_funcs_hit,
-		"total_func_pct": _pct(total_funcs_hit, total_funcs_found),
+		"total_func_pct": pct(total_funcs_hit, total_funcs_found),
 	}
 
 
@@ -104,7 +104,7 @@ static func parse_lcov_content(content: String, project_path: String = "") -> Di
 			lh = int(line.substr(3))
 		elif line == "end_of_record":
 			if current_path != "" and lf > 0:
-				result[current_path] = float(lh) / float(lf) * 100.0
+				result[current_path] = pct(lh, lf)
 			total_lf += lf
 			total_lh += lh
 			current_path = ""
@@ -114,12 +114,12 @@ static func parse_lcov_content(content: String, project_path: String = "") -> Di
 	# Flush a final record that lacked a trailing end_of_record line. A normal
 	# record resets current_path to "", so this only fires for a dangling one.
 	if current_path != "" and lf > 0:
-		result[current_path] = float(lh) / float(lf) * 100.0
+		result[current_path] = pct(lh, lf)
 		total_lf += lf
 		total_lh += lh
 
 	if total_lf > 0:
-		result["_total_percentage"] = float(total_lh) / float(total_lf) * 100.0
+		result["_total_percentage"] = pct(total_lh, total_lf)
 
 	return result
 
@@ -274,7 +274,18 @@ static func function_hit_count(func_info, context: Dictionary, hits: PackedInt32
 	return 0
 
 
-static func _pct(hit: int, total: int, default_val: float = 0.0) -> float:
+## Fully-qualified function name: "Class.name" for a method inside an inner
+## class, or just "name" at the top level. Shared by the LCOV FN/FNDA records
+## and the Cobertura method records so both stay in agreement.
+static func qualified_func_name(func_info) -> String:
+	if func_info.cls_name != "":
+		return "%s.%s" % [func_info.cls_name, func_info.name]
+	return func_info.name
+
+
+## Percentage: hit / total * 100, or default_val when total <= 0. Callers pass
+## default_val = 100.0 where "nothing found" should read as fully covered.
+static func pct(hit: int, total: int, default_val: float = 0.0) -> float:
 	if total <= 0:
 		return default_val
 	return float(hit) / float(total) * 100.0

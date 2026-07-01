@@ -167,13 +167,7 @@ func generate_merged() -> String:
 
 ## Write merged coverage to a file. Returns OK on success.
 func write_merged(output_path: String) -> int:
-	var content := generate_merged()
-	var file := FileAccess.open(output_path, FileAccess.WRITE)
-	if file == null:
-		return FileAccess.get_open_error()
-	file.store_string(content)
-	file.close()
-	return OK
+	return GUTCheckPathUtil.write_file(output_path, generate_merged())
 
 
 ## Order two "line,block,branch" BRDA keys by their numeric fields.
